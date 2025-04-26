@@ -15,7 +15,7 @@ export function Toaster() {
   const { toasts } = useToast()
 
   return (
-    // Provider sets duration and swipe direction for all toasts
+    // Provider sets default duration and swipe direction for all toasts
     <ToastProvider swipeDirection="right" duration={4000}>
       {toasts.map(function ({ id, title, description, action, ...props }) {
         return (
@@ -31,8 +31,13 @@ export function Toaster() {
           </Toast>
         )
       })}
-      {/* Viewport controls the positioning of the toasts group. Added pb-24 to avoid FAB overlap on mobile */}
-      <ToastViewport className="fixed bottom-0 left-0 right-0 p-4 pb-28 flex flex-col-reverse gap-3 z-[100] sm:pb-4 sm:bottom-0 sm:right-0 sm:left-auto sm:top-auto sm:flex-col sm:max-w-[420px]" />
+      {/* Viewport controls the positioning of the toasts group.
+          Default: Fixed bottom right on larger screens, bottom on mobile.
+          Modified for centered toast: Use fixed, inset-x-0, top-1/2, translate-y-[-50%], items-center for vertical centering.
+          Kept existing responsive logic as fallback, but prioritize centering.
+      */}
+       <ToastViewport className="fixed inset-x-0 top-1/2 flex -translate-y-1/2 flex-col items-center gap-3 p-4 z-[100] sm:bottom-auto sm:right-auto sm:left-1/2 sm:-translate-x-1/2 sm:top-4 sm:translate-y-0 sm:max-w-[420px]" />
+
     </ToastProvider>
   )
 }

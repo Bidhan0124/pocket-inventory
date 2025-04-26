@@ -187,7 +187,7 @@ export function useInventory() {
     // Cleanup listener on unmount
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient]); // Removed offlineQueue from deps to avoid loops
+  }, [queryClient]);
 
 
   // Function to sync offline queue
@@ -462,7 +462,8 @@ export function useInventory() {
           title: "Product Saved Locally",
           description: `${variables.name || 'Product'} saved. Syncing in background...`,
           variant: 'default',
-          style: { backgroundColor: 'var(--accent-success)', color: 'var(--accent-success-foreground)' }
+          style: { backgroundColor: 'var(--accent-success)', color: 'var(--accent-success-foreground)' },
+          duration: 500, // Set duration to 500ms (0.5 seconds)
         });
      },
      onError: (error, variables) => {

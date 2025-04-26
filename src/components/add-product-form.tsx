@@ -28,14 +28,15 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle, Building } from "lucide-react"; // Added Building icon
-import type { AddProductFormData as ProductFormData } from '@/lib/types'; // Import the refined type
+import type { AddProductFormData as ProductFormData, Company } from '@/lib/types'; // Import the refined type & Company
 import Image from 'next/image'; // Use next/image for preview
 import { useToast } from '@/hooks/use-toast'; // Import useToast
+import { useCompanies } from '@/hooks/use-companies'; // Import useCompanies hook
 
 // Validation schema: Name is required, Max Discount is optional. Company is optional string.
 export const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
-  company: z.string().optional(), // Added company field back (optional string)
+  company: z.string().optional(), // Company is optional string
   costPrice: z.coerce.number().min(0, "Cost price must be non-negative"),
   sellingPrice: z.coerce.number().min(0, "Selling price must be non-negative"),
   maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%").optional(), // Optional, no default here, handled in submit/hook
@@ -53,6 +54,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast(); // Get toast function
+  const { companies, isLoading: isLoadingCompanies } = useCompanies(); // Get companies
 
 
   const form = useForm<ProductFormData>({
@@ -83,16 +85,16 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   };
 
 
-  const onSubmit = async (data: ProductFormData) => {
-    console.log("Form submitted with data:", data);
-
-    const processedData: ProductFormData = {
-        ...data,
-        company: data.company?.trim() || undefined, // Trim and set to undefined if empty
-        maxDiscount: data.maxDiscount ?? 0, // Default to 0 if undefined/null
-    };
-    console.log("Calling onAddProduct with processed data:", processedData);
-    onAddProduct(processedData); // Pass the fully processed data
+  const onSubmit = (data: ProductFormData) => {
+     console.log("Form submitted with data:", data);
+    // No need to process defaults here, useInventory hook handles it
+    onAddProduct(data); // Pass the raw form data
+    // Close the dialog immediately after submitting (or after a very short delay for visual feedback)
+    // The background processing is handled by the hook
+    const timer = setTimeout(() => {
+        handleClose();
+    }, 100); // Short delay (100ms) before closing
+    return () => clearTimeout(timer); // Cleanup timeout
   };
 
    // Close dialog and reset form state
@@ -112,22 +114,25 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
         }
     };
 
-    // Reset form and close dialog after successful add attempt (regardless of actual success)
-    useEffect(() => {
-        // Check if the form was submitted AND the mutation is no longer pending
-        if (form.formState.isSubmitted && !isAdding) {
-             // Small delay to allow success toast to show before closing
-             const timer = setTimeout(() => {
-                handleClose();
-             }, 500); // 0.5 second delay
-             return () => clearTimeout(timer); // Cleanup timeout on unmount or deps change
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isAdding, form.formState.isSubmitted]);
+    // No longer need useEffect to close based on isAdding state
+    // useEffect(() => {
+    //     if (form.formState.isSubmitted && !isAdding) {
+    //          const timer = setTimeout(() => {
+    //             handleClose();
+    //          }, 500);
+    //          return () => clearTimeout(timer);
+    //     }
+    // }, [isAdding, form.formState.isSubmitted, handleClose, form.reset, form.formState]);
 
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !isAdding && setIsOpen(open)}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+        if (!open) { // Handle closing explicitly
+            handleClose();
+        } else {
+            setIsOpen(true);
+        }
+    }}>
       <DialogTrigger asChild>
         <Button className="fixed bottom-6 right-6 rounded-full h-14 w-14 p-0 shadow-lg z-20 bg-gradient-to-br from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90 transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
           <PlusCircle className="h-7 w-7 text-primary-foreground" />
@@ -210,7 +215,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 )}
               />
 
-              {/* Company Name (Simple Input) */}
+               {/* Company Name (Datalist Input) */}
                <FormField
                 control={form.control}
                 name="company"
@@ -221,8 +226,22 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                         Company Name (Optional)
                     </FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., Acme Corp" {...field} className="text-base"/>
+                        <>
+                          <Input
+                              placeholder="Type or select company..."
+                              {...field}
+                              list="company-suggestions"
+                              className="text-base"
+                              disabled={isLoadingCompanies} // Disable while loading companies
+                          />
+                          <datalist id="company-suggestions">
+                              {!isLoadingCompanies && companies.map((company) => (
+                                  <option key={company.id} value={company.name} />
+                              ))}
+                          </datalist>
+                        </>
                     </FormControl>
+                     {isLoadingCompanies && <p className="text-xs text-muted-foreground">Loading companies...</p>}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -293,15 +312,13 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
             </div>
 
             <DialogFooter className="mt-8 gap-2 sm:gap-0">
-              <DialogClose asChild>
-                  <Button type="button" variant="outline" onClick={handleClose} disabled={isAdding} className="w-full sm:w-auto">
-                      Cancel
-                  </Button>
-               </DialogClose>
+              <Button type="button" variant="outline" onClick={handleClose} disabled={isAdding} className="w-full sm:w-auto">
+                   Cancel
+              </Button>
               <Button type="submit" disabled={isAdding} className="w-full sm:w-auto bg-accent-success hover:bg-accent-success/90 text-accent-success-foreground">
                 {isAdding ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding...
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
                   </>
                 ) : (
                     <>
@@ -316,4 +333,3 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     </Dialog>
   );
 }
-

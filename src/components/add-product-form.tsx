@@ -41,8 +41,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Check, ChevronsUpDown, PlusCircle, Image as ImageIcon, Loader2, CheckCircle } from "lucide-react";
-// Keep Avatar imports only if used elsewhere, otherwise remove
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useCompanies } from '@/hooks/use-companies'; // Import hook to fetch/add companies
 import type { AddProductFormData as ProductFormData } from '@/lib/types'; // Import the refined type
 import { cn } from '@/lib/utils';
@@ -265,89 +263,94 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 name="company"
                 render={({ field }) => {
                   const typedValue = field.value || ""; // Get current value from form state
-                  const filteredCompanies = companies.filter(company =>
-                    company.name.toLowerCase().includes(typedValue.toLowerCase())
-                  );
-                  const showAddOption = typedValue.trim() && !companies.some(c => c.name.toLowerCase() === typedValue.trim().toLowerCase());
 
                   return (
                     <FormItem className="flex flex-col">
                       <FormLabel>Company (Optional)</FormLabel>
+                      {/* Use Popover for the dropdown part */}
                       <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
                         <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              role="combobox"
-                              aria-expanded={companyPopoverOpen}
-                              className={cn(
-                                "w-full justify-between text-base",
-                                !field.value && "text-muted-foreground"
-                              )}
-                              disabled={isLoadingCompanies || isAdding || isAddingCompany}
-                            >
-                              {field.value ? field.value : "Select or type company..."}
-                              {isLoadingCompanies ? (
-                                <Loader2 className="ml-2 h-4 w-4 shrink-0 animate-spin opacity-50" />
-                              ) : (
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                              )}
-                            </Button>
-                          </FormControl>
+                           <FormControl>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={companyPopoverOpen}
+                                className={cn(
+                                  "w-full justify-between text-base",
+                                  !field.value && "text-muted-foreground"
+                                )}
+                                disabled={isLoadingCompanies || isAdding || isAddingCompany}
+                              >
+                                {field.value ? field.value : "Select or type company..."}
+                                {isLoadingCompanies ? (
+                                  <Loader2 className="ml-2 h-4 w-4 shrink-0 animate-spin opacity-50" />
+                                ) : (
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                )}
+                              </Button>
+                           </FormControl>
                         </PopoverTrigger>
                         <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                          <Command shouldFilter={false}> {/* We filter manually */}
-                            <CommandInput
-                              placeholder="Search or add company..."
-                              value={typedValue} // Control input with form field value
-                              onValueChange={(search) => field.onChange(search)} // Update form field on change
-                              className="text-base h-11"
-                              disabled={isLoadingCompanies || isAdding || isAddingCompany}
-                            />
-                            <CommandList>
-                              <CommandEmpty>
-                                {showAddOption ? (
-                                  <CommandItem
-                                    onSelect={() => {
-                                      const newCompanyName = typedValue.trim();
-                                      // Set form value directly (no need to manually add here, onSubmit handles it)
-                                      field.onChange(newCompanyName);
-                                      setCompanyPopoverOpen(false);
-                                    }}
-                                    className="text-sm cursor-pointer"
-                                  >
-                                    <PlusCircle className="mr-2 h-4 w-4" />
-                                    Add "{typedValue.trim()}"
-                                  </CommandItem>
-                                ) : (
-                                  <span className="py-6 text-center text-sm">
-                                    {isLoadingCompanies ? 'Loading...' : 'No company found. Type to add.'}
-                                  </span>
-                                )}
-                              </CommandEmpty>
-                              <CommandGroup heading="Suggestions">
-                                {filteredCompanies.map((company) => (
-                                  <CommandItem
-                                    value={company.name} // Use name for value
-                                    key={company.id}
-                                    onSelect={() => {
-                                      field.onChange(company.name); // Set selected value in the form
-                                      setCompanyPopoverOpen(false);
-                                    }}
-                                    className="text-sm"
-                                  >
-                                    <Check
-                                      className={cn(
-                                        "mr-2 h-4 w-4",
-                                        company.name === field.value ? "opacity-100" : "opacity-0"
-                                      )}
-                                    />
-                                    {company.name}
-                                  </CommandItem>
-                                ))}
-                              </CommandGroup>
-                            </CommandList>
-                          </Command>
+                            {/* Use Command for the search/select functionality */}
+                           <Command shouldFilter={false}> {/* Manual filtering below */}
+                              <CommandInput
+                                placeholder="Search or add company..."
+                                value={typedValue} // Controlled input
+                                onValueChange={(search) => {
+                                  field.onChange(search); // Update form state as user types
+                                }}
+                                className="text-base h-11"
+                                disabled={isLoadingCompanies || isAdding || isAddingCompany}
+                              />
+                              <CommandList>
+                                <CommandEmpty>
+                                  {typedValue.trim() && !isLoadingCompanies && (
+                                    <CommandItem
+                                      onSelect={() => {
+                                        const newCompanyName = typedValue.trim();
+                                        field.onChange(newCompanyName); // Update form state
+                                        setCompanyPopoverOpen(false); // Close popover
+                                      }}
+                                      className="text-sm cursor-pointer"
+                                    >
+                                      <PlusCircle className="mr-2 h-4 w-4" />
+                                      Add "{typedValue.trim()}"
+                                    </CommandItem>
+                                  )}
+                                  {!typedValue.trim() && !isLoadingCompanies && (
+                                    <span className="py-6 text-center text-sm">
+                                      Type to search or add.
+                                    </span>
+                                  )}
+                                  {isLoadingCompanies && (
+                                    <span className="py-6 text-center text-sm">Loading...</span>
+                                  )}
+                                </CommandEmpty>
+                                <CommandGroup heading="Suggestions">
+                                  {companies
+                                     .filter(company => company.name.toLowerCase().includes(typedValue.toLowerCase()))
+                                     .map((company) => (
+                                    <CommandItem
+                                      value={company.name} // Important for internal CMDK state
+                                      key={company.id}
+                                      onSelect={() => {
+                                        field.onChange(company.name); // Update form with selected company
+                                        setCompanyPopoverOpen(false); // Close popover
+                                      }}
+                                      className="text-sm"
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          company.name === field.value ? "opacity-100" : "opacity-0"
+                                        )}
+                                      />
+                                      {company.name}
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
                         </PopoverContent>
                       </Popover>
                       <FormMessage />

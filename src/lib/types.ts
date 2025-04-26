@@ -4,11 +4,11 @@ import type { productSchema } from '@/components/add-product-form'; // Import sc
 
 export interface Product {
   id: string;
-  name?: string;
+  name: string; // Name is now mandatory
   company?: string; // Company name as string
   costPrice: number;
   sellingPrice: number;
-  maxDiscount: number;
+  maxDiscount?: number; // Max discount is now optional
   imageUrl?: string;
   createdAt: Date;
   isOffline?: boolean; // Optional flag for UI indication
@@ -24,3 +24,5 @@ export interface Company {
 // Define the type based on the Zod schema in AddProductForm
 export type AddProductFormData = z.infer<typeof productSchema>;
 
+
+    

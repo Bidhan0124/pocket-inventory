@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Product } from "@/lib/types";
@@ -72,9 +73,9 @@ export function ProductList({ products, isLoading }: ProductListProps) {
     >
       {products.map((product) => (
         <motion.div key={product.id} variants={itemVariants}>
-          <Card className={`relative overflow-hidden transition-shadow duration-200 hover:shadow-md ${product.isOffline ? 'opacity-70 border-dashed border-primary' : ''}`}>
+          <Card className={`relative overflow-hidden transition-shadow duration-200 hover:shadow-lg ${product.isOffline ? 'opacity-70 border-dashed border-primary' : ''}`}>
              {product.isOffline && (
-                <Badge variant="outline" className="absolute top-2 right-2 bg-background/80 text-xs">Offline</Badge>
+                <Badge variant="outline" className="absolute top-2 right-2 bg-background/80 text-xs backdrop-blur-sm">Offline</Badge>
               )}
             <CardHeader className="flex flex-row items-center gap-4 pb-2">
               <Avatar className="h-12 w-12 border">
@@ -96,7 +97,10 @@ export function ProductList({ products, isLoading }: ProductListProps) {
             <CardContent className="text-xs space-y-1 pt-0">
               <p>Cost: ₹{product.costPrice.toFixed(2)}</p>
               <p>Selling: ₹{product.sellingPrice.toFixed(2)}</p>
-              <p>Max Discount: {product.maxDiscount}%</p>
+              {/* Only display Max Discount if it's greater than 0 */}
+              {(product.maxDiscount ?? 0) > 0 && (
+                <p>Max Discount: {product.maxDiscount}%</p>
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -104,3 +108,4 @@ export function ProductList({ products, isLoading }: ProductListProps) {
     </motion.div>
   );
 }
+    

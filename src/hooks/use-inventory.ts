@@ -234,6 +234,8 @@ export function useInventory() {
           const docRef = doc(collection(db, PRODUCTS_COLLECTION)); // Let Firestore generate ID
           batch.set(docRef, {
             ...productData,
+             // Ensure maxDiscount is a number (should be 0 if undefined in OfflineProduct)
+             maxDiscount: productData.maxDiscount ?? 0,
             imageUrl, // Will be undefined if upload failed or no image
             createdAt: Timestamp.fromDate(productData.createdAt), // Convert Date back to Timestamp
           });
@@ -327,7 +329,11 @@ export function useInventory() {
   // Add product mutation
   const addProductMutation = useMutation({
      mutationFn: async (formData: AddProductFormData) => {
-       const { imageFile, ...productData } = formData;
+        // Ensure maxDiscount is set to 0 if it's undefined/null
+       const { imageFile, ...productData } = {
+           ...formData,
+           maxDiscount: formData.maxDiscount ?? 0,
+       };
        const tempId = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
        const createdAt = new Date();
        let localImageUrl: string | undefined = undefined;
@@ -373,7 +379,18 @@ export function useInventory() {
        setOfflineQueue((prevQueue) => [...prevQueue, offlineProduct]);
        // Optimistically add to the main products list
        queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) => [
-           { ...productData, id: tempId, imageUrl: localImageUrl, createdAt, isOffline: true }, // Show basic data locally
+            // Ensure properties match the Product type for optimistic update
+           {
+                id: tempId,
+                name: productData.name, // Mandatory now
+                company: productData.company,
+                costPrice: productData.costPrice,
+                sellingPrice: productData.sellingPrice,
+                maxDiscount: productData.maxDiscount, // Optional, defaults to 0
+                imageUrl: localImageUrl,
+                createdAt,
+                isOffline: true
+            },
            ...oldData,
        ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())); // Keep sorted
 
@@ -394,7 +411,7 @@ export function useInventory() {
            }
 
            const docRef = await addDoc(collection(db, PRODUCTS_COLLECTION), {
-             ...productData,
+             ...productData, // name, company, costPrice, sellingPrice, maxDiscount (will be 0 if omitted)
              imageUrl: uploadedImageUrl,
              createdAt: Timestamp.fromDate(createdAt),
            });
@@ -408,7 +425,17 @@ export function useInventory() {
            //       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
            // );
 
-           return { ...productData, id: docRef.id, imageUrl: uploadedImageUrl, createdAt }; // Return the synced product
+            // Return the synced product data matching the Product type
+            return {
+                id: docRef.id,
+                name: productData.name,
+                company: productData.company,
+                costPrice: productData.costPrice,
+                sellingPrice: productData.sellingPrice,
+                maxDiscount: productData.maxDiscount,
+                imageUrl: uploadedImageUrl,
+                createdAt
+            };
 
          } catch (error) {
            console.error('Direct Firestore add failed, keeping in offline queue:', error);
@@ -471,11 +498,11 @@ export function useInventory() {
     // Map offline items for display
     ...offlineQueue.map(op => ({
       id: op.tempId,
-      name: op.name,
+      name: op.name, // Mandatory now
       company: op.company,
       costPrice: op.costPrice,
       sellingPrice: op.sellingPrice,
-      maxDiscount: op.maxDiscount,
+      maxDiscount: op.maxDiscount, // Optional, will be 0 if undefined
       // Use stored blob URL if available, otherwise undefined
       imageUrl: op.imageFilePath && op.imageFilePath.startsWith('blob:') ? op.imageFilePath : undefined,
       createdAt: op.createdAt,
@@ -502,3 +529,5 @@ export function useInventory() {
     offlineQueueCount: offlineQueue.length,
   };
 }
+
+      

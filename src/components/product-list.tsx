@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 import { motion } from "framer-motion"; // Import motion
-import { Package } from "lucide-react"; // Removed Building icon
+import { Package, Building } from "lucide-react"; // Added Building icon
 import { cn } from "@/lib/utils";
 import Image from 'next/image'; // Use next/image for better control
 
@@ -48,14 +48,14 @@ const GridSkeleton = () => (
         <Skeleton className="w-full aspect-video rounded-t-md" />
         <CardHeader className="flex flex-row items-center gap-4 pb-2 pt-4">
           <div className="flex-1 space-y-2">
-             <Skeleton className="h-5 w-3/4 rounded" /> {/* Adjusted height */}
-             {/* Removed company skeleton */}
+             <Skeleton className="h-5 w-3/4 rounded" /> {/* Product Name */}
+             <Skeleton className="h-4 w-1/2 rounded" /> {/* Company Name */}
           </div>
         </CardHeader>
         <CardContent className="space-y-2 pt-0">
-           <Skeleton className="h-4 w-full rounded" /> {/* Adjusted height */}
-           <Skeleton className="h-4 w-5/6 rounded" /> {/* Adjusted height */}
-           <Skeleton className="h-4 w-1/3 rounded" /> {/* Adjusted height */}
+           <Skeleton className="h-4 w-full rounded" /> {/* Cost Price */}
+           <Skeleton className="h-4 w-5/6 rounded" /> {/* Selling Price */}
+           <Skeleton className="h-4 w-1/3 rounded" /> {/* Discount Badge */}
         </CardContent>
       </Card>
     ))}
@@ -69,12 +69,12 @@ const ListSkeleton = () => (
                 {/* Larger rectangular skeleton for image */}
                 <Skeleton className="h-24 w-24 rounded-md flex-shrink-0" />
                 <div className="flex-1 space-y-2">
-                    <Skeleton className="h-6 w-1/2 rounded" /> {/* Adjusted height */}
-                    {/* Removed company skeleton */}
+                    <Skeleton className="h-6 w-1/2 rounded" /> {/* Product Name */}
+                    <Skeleton className="h-4 w-1/3 rounded" /> {/* Company Name */}
                     <div className="flex gap-4 pt-1">
-                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Adjusted height */}
-                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Adjusted height */}
-                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Adjusted height */}
+                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Cost Price */}
+                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Selling Price */}
+                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Discount Badge */}
                     </div>
                 </div>
             </Card>
@@ -145,11 +145,17 @@ const GridViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
         </div>
 
         {/* Content below image */}
-        <CardHeader className="flex flex-row items-center gap-2 pb-2 pt-4 px-4">
+        <CardHeader className="flex flex-row items-start gap-2 pb-2 pt-4 px-4">
             <div className="flex-1 space-y-1 overflow-hidden">
                 {/* Increased title size */}
                 <CardTitle className="text-lg font-semibold truncate">{product.name || "Unnamed Product"}</CardTitle>
-                {/* Removed company display */}
+                {/* Show company name if available */}
+                {product.company && (
+                    <CardDescription className="text-xs flex items-center gap-1 text-muted-foreground truncate pt-0.5">
+                       <Building className="h-3 w-3 flex-shrink-0" />
+                       {product.company}
+                    </CardDescription>
+                 )}
             </div>
         </CardHeader>
         {/* Increased content text size */}
@@ -195,7 +201,13 @@ const ListViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
         <div className="flex-1 space-y-1 overflow-hidden">
             {/* Increased title size */}
             <CardTitle className="text-xl font-semibold truncate">{product.name || "Unnamed Product"}</CardTitle>
-             {/* Removed company display */}
+            {/* Show company name if available */}
+            {product.company && (
+                <CardDescription className="text-sm flex items-center gap-1 text-muted-foreground truncate pt-0.5">
+                   <Building className="h-4 w-4 flex-shrink-0" />
+                   {product.company}
+                </CardDescription>
+            )}
             {/* Increased price/discount text size */}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-base pt-1 text-muted-foreground">
                 <span>Cost: Rs. {product.costPrice.toFixed(2)}</span>
@@ -210,3 +222,4 @@ const ListViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
         </div>
      </Card>
 );
+

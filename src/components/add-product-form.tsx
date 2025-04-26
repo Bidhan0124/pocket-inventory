@@ -27,15 +27,15 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle } from "lucide-react";
+import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle, Building } from "lucide-react"; // Added Building icon
 import type { AddProductFormData as ProductFormData } from '@/lib/types'; // Import the refined type
 import Image from 'next/image'; // Use next/image for preview
 import { useToast } from '@/hooks/use-toast'; // Import useToast
 
-// Validation schema: Name is required, Max Discount is optional. Removed company field.
+// Validation schema: Name is required, Max Discount is optional. Company is optional string.
 export const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
-  // company: z.string().optional(), // Removed company field
+  company: z.string().optional(), // Added company field back (optional string)
   costPrice: z.coerce.number().min(0, "Cost price must be non-negative"),
   sellingPrice: z.coerce.number().min(0, "Selling price must be non-negative"),
   maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%").optional(), // Optional, no default here, handled in submit/hook
@@ -59,7 +59,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     resolver: zodResolver(productSchema),
     defaultValues: {
       name: "",
-      // company: "", // Removed company field
+      company: "", // Initialize company field
       costPrice: 0,
       sellingPrice: 0,
       maxDiscount: undefined, // Initialize as undefined
@@ -88,6 +88,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
 
     const processedData: ProductFormData = {
         ...data,
+        company: data.company?.trim() || undefined, // Trim and set to undefined if empty
         maxDiscount: data.maxDiscount ?? 0, // Default to 0 if undefined/null
     };
     console.log("Calling onAddProduct with processed data:", processedData);
@@ -99,7 +100,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
       setIsOpen(false);
       form.reset({ // Reset with default values
          name: "",
-         // company: "", // Removed company field
+         company: "", // Reset company field
          costPrice: 0,
          sellingPrice: 0,
          maxDiscount: undefined,
@@ -209,7 +210,23 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 )}
               />
 
-              {/* Company Combobox Removed */}
+              {/* Company Name (Simple Input) */}
+               <FormField
+                control={form.control}
+                name="company"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-1">
+                        <Building className="h-4 w-4 text-muted-foreground" />
+                        Company Name (Optional)
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Acme Corp" {...field} className="text-base"/>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
 
               {/* Price Fields in a Grid */}
@@ -299,3 +316,4 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     </Dialog>
   );
 }
+

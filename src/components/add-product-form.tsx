@@ -1,14 +1,27 @@
+
 "use client";
 
-import * as React from 'react'; // Added missing React import
-import { useState, useRef, type ChangeEvent } from "react";
+import * as React from 'react';
+import { useState, useRef, useEffect, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea"; // Using textarea for name/company for potentially longer inputs
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Dialog,
   DialogContent,
@@ -27,24 +40,25 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle } from "lucide-react";
+import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle, ChevronsUpDown, Check } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useCompanies } from "@/hooks/use-companies"; // Import the hook
+import type { AddProductFormData as ProductFormData } from '@/lib/types'; // Import the refined type
+import { cn } from '@/lib/utils';
 
-
-// Validation schema
-const productSchema = z.object({
+// Validation schema (keep zod for validation)
+export const productSchema = z.object({
   name: z.string().optional(),
-  company: z.string().optional(),
+  company: z.string().optional(), // Allow free text input
   costPrice: z.coerce.number().min(0, "Cost price must be non-negative"),
   sellingPrice: z.coerce.number().min(0, "Selling price must be non-negative"),
   maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%"),
   imageFile: z.instanceof(File).optional(),
 });
 
-type ProductFormData = z.infer<typeof productSchema>;
 
 interface AddProductFormProps {
-  onAddProduct: (data: ProductFormData & { tempId?: string }) => void; // Allow tempId for offline
+  onAddProduct: (data: ProductFormData) => void; // Use the imported type
   isAdding: boolean;
 }
 
@@ -52,6 +66,8 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const [isOpen, setIsOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
+  const { companies, isLoading: isLoadingCompanies } = useCompanies(); // Use the hook
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -68,7 +84,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
    const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      form.setValue("imageFile", file); // Set file object in form state
+      form.setValue("imageFile", file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -82,14 +98,8 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
 
 
   const onSubmit = (data: ProductFormData) => {
-    onAddProduct(data);
-     // Keep dialog open while adding, close on success (handled by parent via isAdding potentially)
-     // Reset form only after successful submission ideally.
-     // For now, reset immediately after triggering add.
-     // form.reset(); // Reset form fields
-     // setImagePreview(null); // Clear image preview
-     // fileInputRef.current && (fileInputRef.current.value = ''); // Clear file input visually
-     // setIsOpen(false); // Close the dialog
+    console.log("Form submitted with data:", data);
+    onAddProduct(data); // Pass the raw form data including the File object
   };
 
    // Close dialog and reset form state
@@ -103,8 +113,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     };
 
     // Reset form and close dialog after successful add (when isAdding becomes false)
-    // biome-ignore lint/correctness/useExhaustiveDependencies: Need to react to isAdding and submit state
-    React.useEffect(() => {
+    useEffect(() => {
         if (!isAdding && form.formState.isSubmitSuccessful) {
             handleClose();
         }
@@ -129,6 +138,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {/* Image Upload Section */}
             <div className="grid grid-cols-3 items-center gap-4">
                  <Label htmlFor="product-image" className="col-span-1 text-right">
                     Image
@@ -143,18 +153,20 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                   <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
                     Upload
                   </Button>
-                  {/* Hidden file input */}
                   <FormField
                        control={form.control}
                        name="imageFile"
-                       render={({ field }) => (
+                       render={({ field }) => ( // No direct render needed here, just for validation
                           <FormItem className="hidden">
                              <FormControl>
                                 <Input
                                   type="file"
                                   accept="image/*"
                                   ref={fileInputRef}
-                                  onChange={handleImageChange}
+                                  onChange={(e) => {
+                                      field.onChange(e.target.files?.[0]); // Update RHF state
+                                      handleImageChange(e); // Update preview
+                                  }}
                                   className="hidden"
                                   id="product-image"
                                   />
@@ -166,7 +178,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 </div>
              </div>
 
-
+            {/* Product Name */}
             <FormField
               control={form.control}
               name="name"
@@ -180,19 +192,89 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 </FormItem>
               )}
             />
-            <FormField
+
+             {/* Company Selection/Creation */}
+             <FormField
               control={form.control}
               name="company"
               render={({ field }) => (
                 <FormItem className="grid grid-cols-3 items-center gap-4">
                   <FormLabel className="text-right">Company</FormLabel>
-                  <FormControl className="col-span-2">
-                    <Input placeholder="Optional: e.g., Brand Name" {...field} />
-                  </FormControl>
+                  <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
+                     <PopoverTrigger asChild className="col-span-2">
+                       <FormControl>
+                         <Button
+                           variant="outline"
+                           role="combobox"
+                           aria-expanded={companyPopoverOpen}
+                           className={cn(
+                             "w-full justify-between",
+                             !field.value && "text-muted-foreground"
+                           )}
+                           disabled={isLoadingCompanies || isAdding}
+                         >
+                            {isLoadingCompanies ? 'Loading...' : field.value || "Select or type company"}
+                           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                         </Button>
+                       </FormControl>
+                     </PopoverTrigger>
+                     <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
+                        <Command shouldFilter={true}>
+                            {/* Allow free text input directly in the command input */}
+                             <CommandInput
+                                placeholder="Search or create company..."
+                                value={field.value || ''} // Bind input value
+                                onValueChange={(searchValue) => {
+                                     field.onChange(searchValue); // Update form state on typing
+                                }}
+                             />
+                             <CommandList>
+                                 <CommandEmpty>No company found. Type to create.</CommandEmpty>
+                                 <CommandGroup>
+                                    {companies.map((company) => (
+                                     <CommandItem
+                                        key={company.id}
+                                        value={company.name}
+                                        onSelect={(currentValue) => {
+                                          form.setValue("company", currentValue === field.value ? "" : currentValue);
+                                          setCompanyPopoverOpen(false);
+                                        }}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            field.value === company.name ? "opacity-100" : "opacity-0"
+                                          )}
+                                        />
+                                        {company.name}
+                                      </CommandItem>
+                                    ))}
+                                     {/* Option to explicitly add the currently typed value */}
+                                     {field.value && !companies.some(c => c.name.toLowerCase() === field.value?.toLowerCase()) && (
+                                         <CommandItem
+                                             key="create-new"
+                                             value={field.value} // Use the typed value
+                                             onSelect={() => {
+                                                // Value is already set via CommandInput's onValueChange
+                                                 setCompanyPopoverOpen(false);
+                                             }}
+                                             className="text-muted-foreground italic"
+                                         >
+                                             Create "{field.value}"
+                                         </CommandItem>
+                                     )}
+                                 </CommandGroup>
+                             </CommandList>
+                         </Command>
+                     </PopoverContent>
+                   </Popover>
                   <FormMessage className="col-span-2 col-start-2" />
                 </FormItem>
               )}
             />
+
+
+             {/* Cost Price */}
              <FormField
               control={form.control}
               name="costPrice"
@@ -206,6 +288,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 </FormItem>
               )}
             />
+             {/* Selling Price */}
              <FormField
               control={form.control}
               name="sellingPrice"
@@ -219,6 +302,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 </FormItem>
               )}
             />
+             {/* Max Discount */}
              <FormField
               control={form.control}
               name="maxDiscount"
@@ -239,7 +323,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                       Cancel
                   </Button>
                </DialogClose>
-              <Button type="submit" disabled={isAdding}>
+              <Button type="submit" disabled={isAdding || isLoadingCompanies}>
                 {isAdding ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding...
@@ -257,3 +341,4 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     </Dialog>
   );
 }
+

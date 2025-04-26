@@ -9,19 +9,8 @@ import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+// Removed Command imports as they are no longer used for company
+// Removed Popover imports as they are no longer used for company
 import {
   Dialog,
   DialogContent,
@@ -40,16 +29,17 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle, ChevronsUpDown, Check } from "lucide-react";
+// Removed Check, ChevronsUpDown from lucide-react
+import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useCompanies } from "@/hooks/use-companies"; // Import the hook
+// Removed useCompanies hook import as it's no longer directly used for the input
 import type { AddProductFormData as ProductFormData } from '@/lib/types'; // Import the refined type
 import { cn } from '@/lib/utils';
 
 // Validation schema: Name is now required, Max Discount is optional
 export const productSchema = z.object({
   name: z.string().min(1, "Product name is required"), // Name is now required
-  company: z.string().optional(), // Allow free text input
+  company: z.string().optional(), // Optional string input
   costPrice: z.coerce.number().min(0, "Cost price must be non-negative"),
   sellingPrice: z.coerce.number().min(0, "Selling price must be non-negative"),
   maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%").optional().default(0), // Optional with default
@@ -66,8 +56,8 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const [isOpen, setIsOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
-  const { companies, isLoading: isLoadingCompanies } = useCompanies(); // Use the hook
+  // Removed companyPopoverOpen state
+  // Removed useCompanies hook usage here
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -103,6 +93,8 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     const processedData = {
         ...data,
         maxDiscount: data.maxDiscount ?? 0,
+        // Trim company name before sending
+        company: data.company?.trim() || undefined,
     };
     onAddProduct(processedData); // Pass the processed data including the File object
   };
@@ -202,82 +194,16 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 )}
               />
 
-               {/* Company Selection/Creation */}
+               {/* Company Input - Simplified */}
                <FormField
                 control={form.control}
                 name="company"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Company</FormLabel>
-                    <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
-                       <PopoverTrigger asChild>
-                         <FormControl>
-                           <Button
-                             variant="outline"
-                             role="combobox"
-                             aria-expanded={companyPopoverOpen}
-                             className={cn(
-                               "w-full justify-between text-base", // Increased text size
-                               !field.value && "text-muted-foreground"
-                             )}
-                             disabled={isLoadingCompanies || isAdding}
-                           >
-                              {isLoadingCompanies ? 'Loading...' : field.value || "Select or type company"}
-                             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                           </Button>
-                         </FormControl>
-                       </PopoverTrigger>
-                       <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                          <Command shouldFilter={true}>
-                              {/* Allow free text input directly in the command input */}
-                               <CommandInput
-                                  placeholder="Search or create company..."
-                                  value={field.value || ''} // Bind input value
-                                  onValueChange={(searchValue) => {
-                                       field.onChange(searchValue); // Update form state on typing
-                                  }}
-                                  className="h-10" // Slightly taller input
-                               />
-                               <CommandList>
-                                   <CommandEmpty>No company found. Type to create.</CommandEmpty>
-                                   <CommandGroup>
-                                      {companies.map((company) => (
-                                       <CommandItem
-                                          key={company.id}
-                                          value={company.name}
-                                          onSelect={(currentValue) => {
-                                            form.setValue("company", currentValue === field.value ? "" : currentValue);
-                                            setCompanyPopoverOpen(false);
-                                          }}
-                                        >
-                                          <Check
-                                            className={cn(
-                                              "mr-2 h-4 w-4",
-                                              field.value === company.name ? "opacity-100" : "opacity-0"
-                                            )}
-                                          />
-                                          {company.name}
-                                        </CommandItem>
-                                      ))}
-                                       {/* Option to explicitly add the currently typed value */}
-                                       {field.value && !companies.some(c => c.name.toLowerCase() === field.value?.toLowerCase()) && (
-                                           <CommandItem
-                                               key="create-new"
-                                               value={field.value} // Use the typed value
-                                               onSelect={() => {
-                                                  // Value is already set via CommandInput's onValueChange
-                                                   setCompanyPopoverOpen(false);
-                                               }}
-                                               className="text-muted-foreground italic"
-                                           >
-                                               Create "{field.value}"
-                                           </CommandItem>
-                                       )}
-                                   </CommandGroup>
-                               </CommandList>
-                           </Command>
-                       </PopoverContent>
-                     </Popover>
+                     <FormControl>
+                       <Input placeholder="e.g., Brand Name (Optional)" {...field} className="text-base"/>
+                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -346,7 +272,8 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                       Cancel
                   </Button>
                </DialogClose>
-              <Button type="submit" disabled={isAdding || isLoadingCompanies} className="w-full sm:w-auto bg-accent-success hover:bg-accent-success/90 text-accent-success-foreground">
+              {/* Removed isLoadingCompanies from disabled condition */}
+              <Button type="submit" disabled={isAdding} className="w-full sm:w-auto bg-accent-success hover:bg-accent-success/90 text-accent-success-foreground">
                 {isAdding ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding...
@@ -364,5 +291,3 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     </Dialog>
   );
 }
-
-    

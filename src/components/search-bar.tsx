@@ -13,6 +13,7 @@ interface SearchBarProps {
   offlineQueueCount: number;
   viewMode: ViewMode; // Add viewMode prop
   onViewChange: (mode: ViewMode) => void; // Add handler prop
+  searchPlaceholder?: string; // Optional placeholder override
 }
 
 export function SearchBar({
@@ -20,7 +21,8 @@ export function SearchBar({
   onSearchChange,
   offlineQueueCount,
   viewMode,
-  onViewChange
+  onViewChange,
+  searchPlaceholder = "Search products by name..." // Default placeholder
 }: SearchBarProps) {
   return (
      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 p-4 border-b">
@@ -29,7 +31,7 @@ export function SearchBar({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 type="search"
-                placeholder="Search products by name or company..."
+                placeholder={searchPlaceholder} // Use the placeholder prop
                 value={searchTerm}
                 onChange={(e) => onSearchChange(e.target.value)}
                 className="pl-10 w-full"
@@ -71,4 +73,3 @@ export function SearchBar({
       </div>
   );
 }
-

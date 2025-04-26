@@ -8,25 +8,24 @@ import {
   addDoc,
   getDocs,
   query,
-  where,
   orderBy,
   onSnapshot,
   Timestamp,
   writeBatch,
   doc,
   getDoc,
-  limit, // Keep limit for company check
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import type { Product, AddProductFormData } from '@/lib/types'; // Import AddProductFormData
 import { useToast } from '@/hooks/use-toast';
-import { useCompanies } from './use-companies'; // Import the *updated* useCompanies hook
+// Removed useCompanies import as it's no longer needed
 
 const PRODUCTS_COLLECTION = 'products';
 const INVENTORY_QUERY_KEY = 'inventory';
 const LOCAL_STORAGE_KEY = 'pocketInventory_local';
 
+// Removed company from OfflineProduct
 interface OfflineProduct extends Omit<Product, 'id' | 'createdAt' | 'imageUrl'> {
   tempId: string;
   imageFilePath?: string; // Store path instead of file object for offline
@@ -61,9 +60,6 @@ export function useInventory() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [offlineQueue, setOfflineQueue] = useState<OfflineProduct[]>([]);
-  // Only get what's needed: addCompany mutation and its pending state.
-  // Company list and loading state are handled in AddProductForm via useCompanies.
-  const { addCompany, isAddingCompany } = useCompanies();
   const isSyncing = useRef(false); // Ref to prevent concurrent syncs
 
   // Load offline queue from local storage on mount
@@ -173,8 +169,9 @@ export function useInventory() {
         console.log("Sync skipped: Already in progress.");
         return;
      }
-     if (isAddingCompany || offlineQueue.length === 0 || !navigator.onLine) {
-       console.log(`Sync skipped: ${isAddingCompany ? 'Company operation pending, ' : ''}${offlineQueue.length === 0 ? 'Queue empty, ' : ''}${!navigator.onLine ? 'Offline.' : ''}`);
+     // Removed isAddingCompany check
+     if (offlineQueue.length === 0 || !navigator.onLine) {
+       console.log(`Sync skipped: ${offlineQueue.length === 0 ? 'Queue empty, ' : ''}${!navigator.onLine ? 'Offline.' : ''}`);
        return;
      }
 
@@ -190,28 +187,7 @@ export function useInventory() {
 
      for (const offlineProduct of queueToSync) {
        try {
-          // 1. Ensure Company Exists (Await the async mutation - important for sync integrity)
-          let verifiedCompanyName = offlineProduct.company;
-          if (verifiedCompanyName) {
-            console.log(`Ensuring company '${verifiedCompanyName}' exists during sync for temp ID ${offlineProduct.tempId}...`);
-             try {
-                const companyResult = await addCompany(verifiedCompanyName);
-                 if (companyResult) {
-                    verifiedCompanyName = companyResult.name; // Use corrected name
-                    console.log(`Company '${verifiedCompanyName}' ensured/found (ID: ${companyResult.id}) during sync.`);
-                 } else {
-                    verifiedCompanyName = undefined; // Clear if addCompany returns null
-                 }
-             } catch (companySyncError) {
-                 console.error(`Error ensuring company '${verifiedCompanyName}' during sync:`, companySyncError);
-                 toast({
-                     title: "Company Sync Error",
-                     description: `Could not verify/add company '${verifiedCompanyName}' during sync. Product synced without company.`,
-                     variant: "destructive",
-                 });
-                 verifiedCompanyName = undefined; // Clear on error
-             }
-          }
+          // 1. Removed Company check logic
 
          // 2. Handle Image Upload (if applicable)
          let imageUrl: string | undefined = undefined;
@@ -243,8 +219,8 @@ export function useInventory() {
          }
 
 
-         // 3. Prepare Product Data for Firestore
-         const { imageFilePath, imageFileName, tempId, company, ...productData } = offlineProduct;
+         // 3. Prepare Product Data for Firestore (Removed company field)
+         const { imageFilePath, imageFileName, tempId, ...productData } = offlineProduct;
 
 
           // 4. Add to Batch
@@ -252,7 +228,7 @@ export function useInventory() {
           batch.set(docRef, {
             ...productData,
              maxDiscount: productData.maxDiscount ?? 0,
-             company: verifiedCompanyName || null, // Use the verified name
+             // company: null, // Removed company
              imageUrl,
              createdAt: Timestamp.fromDate(productData.createdAt),
           });
@@ -341,26 +317,23 @@ export function useInventory() {
        window.removeEventListener('offline', handleOffline);
      };
    // eslint-disable-next-line react-hooks/exhaustive-deps
-   }, [addCompany]); // Add addCompany as dependency for syncOfflineQueue
+   }, []); // Removed addCompany dependency
 
 
   // Add product mutation
   const addProductMutation = useMutation({
      mutationFn: async (formData: AddProductFormData) => {
+        // Removed company from destructured data
        const { imageFile, ...productData } = {
            ...formData,
            maxDiscount: formData.maxDiscount ?? 0,
-           // Company name is already processed and confirmed in the form's onSubmit
-           company: formData.company || undefined,
        };
        const tempId = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
        const createdAt = new Date();
        let localImageUrl: string | undefined = undefined;
        let localImageFilePath: string | undefined = undefined;
 
-       // Company check/add is now handled *before* this mutation is called (in AddProductForm onSubmit)
-       const finalCompanyName = productData.company; // Use the name passed from the form
-
+       // Company check/add logic removed
 
        // --- Image Handling ---
        if (imageFile) {
@@ -369,21 +342,21 @@ export function useInventory() {
        }
        // --- End Image Handling ---
 
+       // Removed company from OfflineProduct creation
        const offlineProduct: OfflineProduct = {
          ...productData,
-         company: finalCompanyName, // Use the confirmed company name
          tempId,
          imageFilePath: localImageFilePath,
          imageFileName: imageFile?.name,
          createdAt,
        };
 
-        // 1. Optimistic UI Update (Add to list immediately)
+        // 1. Optimistic UI Update (Add to list immediately, removed company)
         queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) => [
             {
                  id: tempId,
                  name: productData.name,
-                 company: finalCompanyName,
+                 // company: undefined, // Removed company
                  costPrice: productData.costPrice,
                  sellingPrice: productData.sellingPrice,
                  maxDiscount: productData.maxDiscount,
@@ -408,9 +381,10 @@ export function useInventory() {
              if (localImageUrl) URL.revokeObjectURL(localImageUrl);
            }
 
+            // Removed company from Firestore add
            const docRef = await addDoc(collection(db, PRODUCTS_COLLECTION), {
              ...productData,
-             company: finalCompanyName || null, // Use final name, store null if undefined
+             // company: null, // Removed company
              imageUrl: uploadedImageUrl,
              createdAt: Timestamp.fromDate(createdAt),
            });
@@ -418,7 +392,7 @@ export function useInventory() {
 
            // No need to add to offline queue if direct add succeeds
 
-           // Update optimistic item with real ID and mark as online
+           // Update optimistic item with real ID and mark as online (removed company)
            queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) =>
                oldData.map(p => p.id === tempId ? {
                    ...p,
@@ -429,10 +403,11 @@ export function useInventory() {
                   .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
            );
 
+            // Removed company from returned data
             return {
                 id: docRef.id,
                 name: productData.name,
-                company: finalCompanyName,
+                // company: undefined,
                 costPrice: productData.costPrice,
                 sellingPrice: productData.sellingPrice,
                 maxDiscount: productData.maxDiscount,
@@ -491,10 +466,9 @@ export function useInventory() {
      },
   });
 
-   // Filter products based on search term
+   // Filter products based on search term (removed company from search)
     const filteredProducts = products.filter(product =>
-        (product.name?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-        (product.company?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
+        (product.name?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
     );
 
 
@@ -505,7 +479,8 @@ export function useInventory() {
     searchTerm,
     setSearchTerm,
     addProduct: addProductMutation.mutate,
-    isAddingProduct: addProductMutation.isPending || isAddingCompany, // Reflect product adding OR company check/add pending state
+    // Removed isAddingCompany from pending state
+    isAddingProduct: addProductMutation.isPending,
     syncOfflineQueue,
     offlineQueueCount: offlineQueue.length, // Keep track of pending offline items count
   };

@@ -48,6 +48,7 @@ export default function Home() {
           offlineQueueCount={offlineQueueCount}
           viewMode={viewMode} // Pass view mode
           onViewChange={setViewMode} // Pass setter function
+          searchPlaceholder="Search products by name..." // Updated placeholder
         />
       <main className="flex-1 pb-24"> {/* Add padding-bottom to avoid overlap with FAB */}
 
@@ -57,4 +58,3 @@ export default function Home() {
     </div>
   );
 }
-

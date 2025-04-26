@@ -47,14 +47,15 @@ import { useCompanies } from '@/hooks/use-companies'; // Import hook to fetch/ad
 import type { AddProductFormData as ProductFormData } from '@/lib/types'; // Import the refined type
 import { cn } from '@/lib/utils';
 import Image from 'next/image'; // Use next/image for preview
+import { useToast } from '@/hooks/use-toast'; // Import useToast
 
 // Validation schema: Name is required, Max Discount is optional
 export const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
-  company: z.string().optional(), // Selected company name (string)
+  company: z.string().optional(), // Selected or newly typed company name (string)
   costPrice: z.coerce.number().min(0, "Cost price must be non-negative"),
   sellingPrice: z.coerce.number().min(0, "Selling price must be non-negative"),
-  maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%").optional().default(0),
+  maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%").optional(), // Optional, no default here, handled in submit/hook
   imageFile: z.instanceof(File).optional(),
 });
 
@@ -71,7 +72,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
   // isLoading now reflects the query loading state for companies
   const { companies = [], addCompany, isAddingCompany, isLoading: isLoadingCompanies } = useCompanies();
-  const [currentCompanySearch, setCurrentCompanySearch] = useState(""); // Local state for search input
+  const { toast } = useToast(); // Get toast function
 
 
   const form = useForm<ProductFormData>({
@@ -81,7 +82,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
       company: "", // Initialize as empty string
       costPrice: 0,
       sellingPrice: 0,
-      maxDiscount: 0,
+      maxDiscount: undefined, // Initialize as undefined
       imageFile: undefined,
     },
   });
@@ -103,9 +104,9 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
 
 
   const onSubmit = async (data: ProductFormData) => {
-    console.log("Form submitted with data:", data);
+    console.log("Form submitted with data (before company check):", data);
 
-    let finalCompanyName = data.company?.trim(); // Use the company from the form state
+    let finalCompanyName = data.company?.trim() || undefined; // Use the company from the form state, trim, default to undefined
 
      // If a company name was selected or typed, ensure it exists in the backend
      if (finalCompanyName) {
@@ -118,48 +119,60 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
             console.log(`Company "${finalCompanyName}" confirmed/added.`);
          } else {
              // This might happen if addCompany filters out empty strings after trimming
+             console.log(`Company "${finalCompanyName}" resulted in null/undefined after addCompany call, clearing.`);
              finalCompanyName = undefined;
          }
        } catch (error) {
          console.error(`Failed to ensure company "${finalCompanyName}" exists:`, error);
          // Optionally show an error or decide to proceed without the company
-         // For now, let's proceed with the typed value, but log the error
-         // finalCompanyName = undefined; // Or clear it if preferred
          toast({
             title: "Company Error",
-            description: `Could not verify/add company "${finalCompanyName}". Product will be added with the typed name.`,
+            description: `Could not verify/add company "${finalCompanyName}". Product will be added without company info.`,
             variant: "destructive",
           });
+          finalCompanyName = undefined; // Clear company on error
        }
      }
 
 
     const processedData: ProductFormData = {
         ...data,
-        company: finalCompanyName || undefined, // Ensure it's string or undefined
-        maxDiscount: data.maxDiscount ?? 0,
+        company: finalCompanyName, // Final processed company name (string or undefined)
+        maxDiscount: data.maxDiscount ?? 0, // Default to 0 if undefined/null
     };
+    console.log("Calling onAddProduct with processed data:", processedData);
     onAddProduct(processedData); // Pass the fully processed data
   };
 
    // Close dialog and reset form state
    const handleClose = () => {
       setIsOpen(false);
-      form.reset();
+      form.reset({ // Reset with default values
+         name: "",
+         company: "",
+         costPrice: 0,
+         sellingPrice: 0,
+         maxDiscount: undefined,
+         imageFile: undefined,
+      });
       setImagePreview(null);
        if(fileInputRef.current) {
           fileInputRef.current.value = '';
         }
-      setCurrentCompanySearch(""); // Reset local search state too
     };
 
-    // Reset form and close dialog after successful add
+    // Reset form and close dialog after successful add attempt (regardless of actual success)
     useEffect(() => {
-        if (!isAdding && form.formState.isSubmitSuccessful) {
-            handleClose();
+        // Check if the form was submitted AND the mutation is no longer pending
+        if (form.formState.isSubmitted && !isAdding && !isAddingCompany) {
+             // Small delay to allow success toast to show before closing
+             const timer = setTimeout(() => {
+                handleClose();
+             }, 500); // 0.5 second delay
+             return () => clearTimeout(timer); // Cleanup timeout on unmount or deps change
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isAdding, form.formState.isSubmitSuccessful]);
+    }, [isAdding, isAddingCompany, form.formState.isSubmitted]);
 
 
   return (
@@ -250,94 +263,97 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                <FormField
                 control={form.control}
                 name="company"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Company</FormLabel>
-                    <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant="outline"
-                            role="combobox"
-                            aria-expanded={companyPopoverOpen}
-                            className={cn(
-                              "w-full justify-between text-base",
-                              !field.value && "text-muted-foreground"
-                            )}
-                            disabled={isLoadingCompanies || isAdding || isAddingCompany}
-                          >
-                             {field.value
-                              ? field.value // Display the selected/typed value directly
-                              : "Select or type company..."}
-                             {isLoadingCompanies ? (
+                render={({ field }) => {
+                  const typedValue = field.value || ""; // Get current value from form state
+                  const filteredCompanies = companies.filter(company =>
+                    company.name.toLowerCase().includes(typedValue.toLowerCase())
+                  );
+                  const showAddOption = typedValue.trim() && !companies.some(c => c.name.toLowerCase() === typedValue.trim().toLowerCase());
+
+                  return (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Company (Optional)</FormLabel>
+                      <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={companyPopoverOpen}
+                              className={cn(
+                                "w-full justify-between text-base",
+                                !field.value && "text-muted-foreground"
+                              )}
+                              disabled={isLoadingCompanies || isAdding || isAddingCompany}
+                            >
+                              {field.value ? field.value : "Select or type company..."}
+                              {isLoadingCompanies ? (
                                 <Loader2 className="ml-2 h-4 w-4 shrink-0 animate-spin opacity-50" />
-                             ) : (
+                              ) : (
                                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                             )}
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                        <Command shouldFilter={false} > {/* Disable default filtering */}
-                          <CommandInput
-                            placeholder="Search or add company..."
-                            value={currentCompanySearch} // Control input with local state
-                            onValueChange={setCurrentCompanySearch} // Update local search state
-                            className="text-base h-11"
-                            disabled={isLoadingCompanies || isAdding || isAddingCompany}
-                          />
-                          <CommandList>
-                            <CommandEmpty>
-                               {currentCompanySearch.trim() && !companies.some(c => c.name.toLowerCase() === currentCompanySearch.trim().toLowerCase()) ? (
-                                    <CommandItem
-                                        onSelect={() => {
-                                            const newCompanyName = currentCompanySearch.trim();
-                                            form.setValue("company", newCompanyName); // Set form value
-                                            setCurrentCompanySearch(newCompanyName); // Update local state to reflect selection
-                                            setCompanyPopoverOpen(false);
-                                            // Company will be added/verified during onSubmit
-                                        }}
-                                        className="text-sm cursor-pointer"
-                                    >
-                                        <PlusCircle className="mr-2 h-4 w-4" />
-                                        Add "{currentCompanySearch.trim()}"
-                                    </CommandItem>
+                              )}
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
+                          <Command shouldFilter={false}> {/* We filter manually */}
+                            <CommandInput
+                              placeholder="Search or add company..."
+                              value={typedValue} // Control input with form field value
+                              onValueChange={(search) => field.onChange(search)} // Update form field on change
+                              className="text-base h-11"
+                              disabled={isLoadingCompanies || isAdding || isAddingCompany}
+                            />
+                            <CommandList>
+                              <CommandEmpty>
+                                {showAddOption ? (
+                                  <CommandItem
+                                    onSelect={() => {
+                                      const newCompanyName = typedValue.trim();
+                                      // Set form value directly (no need to manually add here, onSubmit handles it)
+                                      field.onChange(newCompanyName);
+                                      setCompanyPopoverOpen(false);
+                                    }}
+                                    className="text-sm cursor-pointer"
+                                  >
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Add "{typedValue.trim()}"
+                                  </CommandItem>
                                 ) : (
-                                    <span className="py-6 text-center text-sm">No company found. Type to add.</span>
+                                  <span className="py-6 text-center text-sm">
+                                    {isLoadingCompanies ? 'Loading...' : 'No company found. Type to add.'}
+                                  </span>
                                 )}
-                            </CommandEmpty>
-                            <CommandGroup heading="Suggestions">
-                              {companies
-                                .filter(company => company.name.toLowerCase().includes(currentCompanySearch.toLowerCase()))
-                                .map((company) => (
-                                <CommandItem
-                                  value={company.name} // Use name for value and filtering
-                                  key={company.id}
-                                  onSelect={() => {
-                                    form.setValue("company", company.name); // Set selected value in the form
-                                    setCurrentCompanySearch(company.name); // Also update local search state
-                                    setCompanyPopoverOpen(false);
-                                  }}
-                                  className="text-sm"
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-4 w-4",
-                                      // Check against form's value for the checkmark
-                                      company.name === field.value ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                  {company.name}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                              </CommandEmpty>
+                              <CommandGroup heading="Suggestions">
+                                {filteredCompanies.map((company) => (
+                                  <CommandItem
+                                    value={company.name} // Use name for value
+                                    key={company.id}
+                                    onSelect={() => {
+                                      field.onChange(company.name); // Set selected value in the form
+                                      setCompanyPopoverOpen(false);
+                                    }}
+                                    className="text-sm"
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-4 w-4",
+                                        company.name === field.value ? "opacity-100" : "opacity-0"
+                                      )}
+                                    />
+                                    {company.name}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
 
@@ -385,10 +401,16 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                        <Input
                          type="number"
                          step="1"
+                         min="0" // Ensure non-negative
+                         max="100" // Ensure max 100
                          placeholder="e.g., 10 (Optional)"
                          {...field}
                          value={field.value ?? ''} // Ensure value is string or number for input
-                         onChange={e => field.onChange(e.target.value === '' ? undefined : Number(e.target.value))} // Handle empty string for optional number
+                         onChange={e => {
+                             const value = e.target.value;
+                             // Allow empty string for optional field, otherwise parse as number
+                             field.onChange(value === '' ? undefined : Number(value));
+                         }}
                          className="text-base"
                        />
                     </FormControl>
@@ -422,3 +444,4 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     </Dialog>
   );
 }
+

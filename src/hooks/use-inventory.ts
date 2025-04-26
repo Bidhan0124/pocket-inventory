@@ -233,7 +233,7 @@ export function useInventory() {
          }
 
          // 2. Handle Image Upload (if applicable)
-         let imageUrl: string | undefined = undefined;
+         let imageUrl: string | null = null; // Initialize as null instead of undefined
          let imageFile: File | null = null;
 
          if (offlineProduct.imageFilePath && offlineProduct.imageFileName) {
@@ -263,10 +263,10 @@ export function useInventory() {
                       // Use tempId in the storage path to potentially link back if needed
                       const storageRef = ref(storage, `product_images/${offlineProduct.tempId}_${offlineProduct.imageFileName}`);
                       const uploadResult = await uploadBytes(storageRef, imageFile);
-                      imageUrl = await getDownloadURL(uploadResult.ref);
+                      imageUrl = await getDownloadURL(uploadResult.ref); // Assign URL if successful
                       console.log(`Image uploaded for temp ID ${offlineProduct.tempId}: ${imageUrl}`);
                       // Revoke blob URL *after* successful upload
-                      if (offlineProduct.imageFilePath.startsWith('blob:')) {
+                      if (offlineProduct.imageFilePath?.startsWith('blob:')) {
                           URL.revokeObjectURL(offlineProduct.imageFilePath);
                       }
                   } catch (uploadError) {
@@ -293,7 +293,7 @@ export function useInventory() {
             ...productData,
              maxDiscount: productData.maxDiscount ?? 0,
              company: productData.company || null, // Ensure company is stored or null
-             imageUrl,
+             imageUrl: imageUrl, // Use the potentially null imageUrl
              createdAt: Timestamp.fromDate(productData.createdAt), // Use original creation time
           });
           console.log(`Adding product (Temp ID: ${tempId}, Name: ${productData.name || 'Unnamed'}) to batch.`);
@@ -500,3 +500,5 @@ export function useInventory() {
     offlineQueueCount: offlineQueue.length, // Keep track of pending offline items count
   };
 }
+
+    

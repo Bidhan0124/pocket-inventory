@@ -49,14 +49,14 @@ const GridSkeleton = () => (
         <Skeleton className="w-full aspect-video rounded-t-md" />
         <CardHeader className="flex flex-row items-center gap-4 pb-2 pt-4">
           <div className="flex-1 space-y-2">
-             <Skeleton className="h-4 w-3/4 rounded" />
-             <Skeleton className="h-3 w-1/2 rounded" />
+             <Skeleton className="h-5 w-3/4 rounded" /> {/* Adjusted height */}
+             <Skeleton className="h-4 w-1/2 rounded" /> {/* Adjusted height */}
           </div>
         </CardHeader>
         <CardContent className="space-y-2 pt-0">
-           <Skeleton className="h-3 w-full rounded" />
-           <Skeleton className="h-3 w-5/6 rounded" />
-           <Skeleton className="h-3 w-1/3 rounded" />
+           <Skeleton className="h-4 w-full rounded" /> {/* Adjusted height */}
+           <Skeleton className="h-4 w-5/6 rounded" /> {/* Adjusted height */}
+           <Skeleton className="h-4 w-1/3 rounded" /> {/* Adjusted height */}
         </CardContent>
       </Card>
     ))}
@@ -70,12 +70,12 @@ const ListSkeleton = () => (
                 {/* Larger rectangular skeleton for image */}
                 <Skeleton className="h-24 w-24 rounded-md flex-shrink-0" />
                 <div className="flex-1 space-y-2">
-                    <Skeleton className="h-5 w-1/2 rounded" />
-                    <Skeleton className="h-4 w-1/3 rounded" />
+                    <Skeleton className="h-6 w-1/2 rounded" /> {/* Adjusted height */}
+                    <Skeleton className="h-5 w-1/3 rounded" /> {/* Adjusted height */}
                     <div className="flex gap-4 pt-1">
-                        <Skeleton className="h-3 w-1/4 rounded" />
-                        <Skeleton className="h-3 w-1/4 rounded" />
-                        <Skeleton className="h-3 w-1/4 rounded" />
+                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Adjusted height */}
+                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Adjusted height */}
+                        <Skeleton className="h-4 w-1/4 rounded" /> {/* Adjusted height */}
                     </div>
                 </div>
             </Card>
@@ -149,20 +149,24 @@ const GridViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
         <CardHeader className="flex flex-row items-center gap-2 pb-2 pt-4 px-4">
             {/* Removed Avatar, details are here now */}
             <div className="flex-1 space-y-1 overflow-hidden">
-                <CardTitle className="text-base font-semibold truncate">{product.name || "Unnamed Product"}</CardTitle>
+                {/* Increased title size */}
+                <CardTitle className="text-lg font-semibold truncate">{product.name || "Unnamed Product"}</CardTitle>
                 {product.company && (
-                    <CardDescription className="text-xs flex items-center gap-1 truncate text-muted-foreground">
-                    <Building className="h-3 w-3 inline-block flex-shrink-0" />
+                    // Increased description size
+                    <CardDescription className="text-sm flex items-center gap-1 truncate text-muted-foreground">
+                    <Building className="h-3.5 w-3.5 inline-block flex-shrink-0" /> {/* Slightly bigger icon */}
                     <span className="truncate">{product.company}</span>
                     </CardDescription>
                 )}
             </div>
         </CardHeader>
-        <CardContent className="text-xs space-y-1 pt-0 flex-grow px-4 pb-4"> {/* Allow content to grow */}
+        {/* Increased content text size */}
+        <CardContent className="text-sm space-y-1 pt-0 flex-grow px-4 pb-4"> {/* Allow content to grow */}
             <p>Cost: ₹{product.costPrice.toFixed(2)}</p>
             <p>Selling: ₹{product.sellingPrice.toFixed(2)}</p>
             {(product.maxDiscount ?? 0) > 0 && (
-                <Badge variant="secondary" className="text-xs font-normal">
+                 // Kept badge size small for contrast
+                <Badge variant="secondary" className="text-xs font-medium mt-1">
                     Up to {product.maxDiscount}% off
                 </Badge>
             )}
@@ -197,18 +201,22 @@ const ListViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
         </div>
 
         <div className="flex-1 space-y-1 overflow-hidden">
-            <CardTitle className="text-lg font-semibold truncate">{product.name || "Unnamed Product"}</CardTitle>
+            {/* Increased title size */}
+            <CardTitle className="text-xl font-semibold truncate">{product.name || "Unnamed Product"}</CardTitle>
             {product.company && (
-                <CardDescription className="text-sm flex items-center gap-1 truncate text-muted-foreground">
+                /* Increased description size */
+                <CardDescription className="text-base flex items-center gap-1 truncate text-muted-foreground">
                   <Building className="h-4 w-4 inline-block flex-shrink-0" />
                   <span className="truncate">{product.company}</span>
                 </CardDescription>
             )}
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm pt-1 text-muted-foreground">
+            {/* Increased price/discount text size */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-base pt-1 text-muted-foreground">
                 <span>Cost: ₹{product.costPrice.toFixed(2)}</span>
                 <span>Selling: ₹{product.sellingPrice.toFixed(2)}</span>
                 {(product.maxDiscount ?? 0) > 0 && (
-                     <Badge variant="secondary" className="text-xs font-normal">
+                     /* Increased badge size slightly */
+                     <Badge variant="secondary" className="text-sm font-medium">
                         Max Disc: {product.maxDiscount}%
                     </Badge>
                 )}
@@ -216,3 +224,4 @@ const ListViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
         </div>
      </Card>
 );
+

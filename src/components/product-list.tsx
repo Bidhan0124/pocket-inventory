@@ -3,7 +3,6 @@
 
 import type { Product, ViewMode } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton"; // Import Skeleton
 import { motion } from "framer-motion"; // Import motion
@@ -42,7 +41,7 @@ const itemVariants = {
 };
 
 const GridSkeleton = () => (
-  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
     {Array.from({ length: 6 }).map((_, index) => (
       <Card key={index} className="animate-pulse">
         {/* Rectangular skeleton for image */}
@@ -130,15 +129,15 @@ const GridViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
 
         {/* Rectangular Image Area */}
         <div className="w-full aspect-video relative overflow-hidden bg-muted rounded-t-md">
-            <Image
-                src={product.imageUrl || `https://picsum.photos/seed/${product.id}/320/180`} // Use placeholder if no image
-                alt={product.name || "Product Image"}
-                fill // Use fill to cover the container
-                className="object-cover" // Cover the area
-                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw" // Responsive sizes
-            />
-            {/* Fallback Icon if image fails to load (though fill usually handles this) */}
-            {!product.imageUrl && (
+            {product.imageUrl ? (
+                <Image
+                    src={product.imageUrl}
+                    alt={product.name || "Product Image"}
+                    fill // Use fill to cover the container
+                    className="object-cover" // Cover the area
+                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, 25vw" // Responsive sizes
+                />
+            ) : (
                  <div className="absolute inset-0 flex items-center justify-center">
                      <Package className="h-1/3 w-1/3 text-muted-foreground opacity-50" />
                  </div>
@@ -147,7 +146,6 @@ const GridViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
 
         {/* Content below image */}
         <CardHeader className="flex flex-row items-center gap-2 pb-2 pt-4 px-4">
-            {/* Removed Avatar, details are here now */}
             <div className="flex-1 space-y-1 overflow-hidden">
                 {/* Increased title size */}
                 <CardTitle className="text-lg font-semibold truncate">{product.name || "Unnamed Product"}</CardTitle>
@@ -162,8 +160,8 @@ const GridViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
         </CardHeader>
         {/* Increased content text size */}
         <CardContent className="text-sm space-y-1 pt-0 flex-grow px-4 pb-4"> {/* Allow content to grow */}
-            <p>Cost: ₹{product.costPrice.toFixed(2)}</p>
-            <p>Selling: ₹{product.sellingPrice.toFixed(2)}</p>
+            <p>Cost: Rs. {product.costPrice.toFixed(2)}</p>
+            <p>Selling: Rs. {product.sellingPrice.toFixed(2)}</p>
             {(product.maxDiscount ?? 0) > 0 && (
                  // Kept badge size small for contrast
                 <Badge variant="secondary" className="text-xs font-medium mt-1">
@@ -185,15 +183,15 @@ const ListViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
          )}
         {/* Larger, rectangular image for list view */}
         <div className="h-24 w-24 flex-shrink-0 border rounded-md overflow-hidden relative bg-muted">
-             <Image
-                 src={product.imageUrl || `https://picsum.photos/seed/${product.id}/150/150`} // Use placeholder
-                 alt={product.name || "Product Image"}
-                 fill
-                 className="object-cover"
-                 sizes="96px" // Fixed size for list view image
-             />
-             {/* Fallback Icon */}
-             {!product.imageUrl && (
+             {product.imageUrl ? (
+                 <Image
+                     src={product.imageUrl}
+                     alt={product.name || "Product Image"}
+                     fill
+                     className="object-cover"
+                     sizes="96px" // Fixed size for list view image
+                 />
+             ) : (
                  <div className="absolute inset-0 flex items-center justify-center">
                      <Package className="h-10 w-10 text-muted-foreground opacity-50" />
                  </div>
@@ -212,8 +210,8 @@ const ListViewCard = ({ product }: { product: Product & { isOffline?: boolean }}
             )}
             {/* Increased price/discount text size */}
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-base pt-1 text-muted-foreground">
-                <span>Cost: ₹{product.costPrice.toFixed(2)}</span>
-                <span>Selling: ₹{product.sellingPrice.toFixed(2)}</span>
+                <span>Cost: Rs. {product.costPrice.toFixed(2)}</span>
+                <span>Selling: Rs. {product.sellingPrice.toFixed(2)}</span>
                 {(product.maxDiscount ?? 0) > 0 && (
                      /* Increased badge size slightly */
                      <Badge variant="secondary" className="text-sm font-medium">

@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   collection,
   addDoc,
@@ -9,80 +9,142 @@ import {
   query,
   where,
   orderBy,
-  // Removed onSnapshot as real-time updates for the list are not needed now
   Timestamp,
-  // Removed writeBatch, doc, getDoc as they are not used here
   limit,
+  onSnapshot // Keep onSnapshot import if real-time updates for the list are desired in the future
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import type { Company } from '@/lib/types';
-// Removed useEffect as the real-time listener is removed
+import { useEffect } from 'react'; // Keep useEffect for potential future listener
 
 const COMPANIES_COLLECTION = 'companies';
-export const COMPANIES_QUERY_KEY = 'companies'; // Keep key for potential future use or invalidation
+export const COMPANIES_QUERY_KEY = 'companies';
 
 export function useCompanies() {
-  const queryClient = useQueryClient(); // Keep for potential invalidation if needed elsewhere
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Remove the useQuery for fetching the list of companies as it's no longer displayed directly
+  // Fetch the list of companies using useQuery
+  const { data: companies = [], isLoading, error } = useQuery<Company[]>({
+    queryKey: [COMPANIES_QUERY_KEY],
+    queryFn: async () => {
+      console.log('Fetching companies from Firestore...');
+      const companiesCollection = collection(db, COMPANIES_COLLECTION);
+      // Fetching all companies, ordered by name for display
+      const q = query(companiesCollection, orderBy('nameLower', 'asc'));
+      const snapshot = await getDocs(q);
+      const fetchedCompanies = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...(doc.data() as Omit<Company, 'id' | 'createdAt'>),
+        createdAt: doc.data().createdAt instanceof Timestamp ? (doc.data().createdAt as Timestamp).toDate() : undefined,
+      }));
+      console.log('Fetched companies:', fetchedCompanies.length);
+      return fetchedCompanies;
+    },
+    staleTime: 1000 * 60 * 15, // Keep data fresh for 15 minutes
+    refetchOnWindowFocus: false, // Don't refetch just on window focus
+  });
 
-  // Remove the useEffect for the real-time listener
+  // Optional: Set up real-time listener if needed in the future
+  // useEffect(() => {
+  //   const companiesCollection = collection(db, COMPANIES_COLLECTION);
+  //   const q = query(companiesCollection, orderBy('nameLower', 'asc'));
+  //   const unsubscribe = onSnapshot(q, (snapshot) => {
+  //     console.log("Company snapshot received:", snapshot.docChanges().length, "changes");
+  //     queryClient.setQueryData<Company[]>([COMPANIES_QUERY_KEY], (oldData = []) => {
+  //        let updatedMap = new Map(oldData.map(c => [c.id, c]));
+  //        snapshot.docChanges().forEach((change) => {
+  //            const changeData = {
+  //              id: change.doc.id,
+  //              ...(change.doc.data() as Omit<Company, 'id' | 'createdAt'>),
+  //              createdAt: change.doc.data().createdAt instanceof Timestamp ? (change.doc.data().createdAt as Timestamp).toDate() : undefined,
+  //            };
+  //            if (change.type === "added" || change.type === "modified") {
+  //                updatedMap.set(changeData.id, changeData);
+  //            } else if (change.type === "removed") {
+  //                updatedMap.delete(change.doc.id);
+  //            }
+  //        });
+  //        return Array.from(updatedMap.values()).sort((a, b) => a.nameLower?.localeCompare(b.nameLower ?? '') ?? 0);
+  //     });
+  //   }, (err) => {
+  //       console.error("Error fetching real-time company updates:", err);
+  //       toast({
+  //         title: "Sync Error",
+  //         description: "Could not get real-time company updates.",
+  //         variant: "destructive",
+  //       });
+  //   });
+  //   return () => unsubscribe();
+  // }, [queryClient, toast]);
 
-  // Mutation to add a new company if it doesn't exist (this logic remains crucial)
+  // Mutation to add a new company if it doesn't exist
   const addCompanyMutation = useMutation({
-    mutationFn: async (companyName: string): Promise<Company | null> => { // Ensure return type consistency
+    mutationFn: async (companyName: string): Promise<Company | null> => {
       if (!companyName?.trim()) {
-        // Don't add empty or whitespace-only names
         console.log("Skipping addCompany: companyName is empty or whitespace.");
         return null;
       }
       const trimmedName = companyName.trim();
       const lowerCaseName = trimmedName.toLowerCase();
 
-      // Check if company already exists (case-insensitive)
-      console.log(`Checking if company "${trimmedName}" exists...`);
+      // Check if company already exists (case-insensitive) in the cached data first
+      const existingCompany = companies.find(c => c.nameLower === lowerCaseName);
+      if (existingCompany) {
+          console.log(`Company "${trimmedName}" already exists locally with ID: ${existingCompany.id}.`);
+          return existingCompany;
+      }
+
+      // If not found locally, double-check in Firestore
+      console.log(`Checking Firestore if company "${trimmedName}" exists...`);
       const companiesCollection = collection(db, COMPANIES_COLLECTION);
       const q = query(companiesCollection, where('nameLower', '==', lowerCaseName), limit(1));
       const existingSnapshot = await getDocs(q);
 
       if (!existingSnapshot.empty) {
         const existingDoc = existingSnapshot.docs[0];
-        console.log(`Company "${trimmedName}" already exists with ID: ${existingDoc.id}.`);
-        // Return the existing company data, converting timestamp if needed
+        console.log(`Company "${trimmedName}" already exists in Firestore with ID: ${existingDoc.id}.`);
         const data = existingDoc.data() as Omit<Company, 'id' | 'createdAt'> & { createdAt?: Timestamp };
         return {
             id: existingDoc.id,
             name: data.name,
             nameLower: data.nameLower,
-            createdAt: data.createdAt?.toDate() // Convert timestamp to Date if it exists
+            createdAt: data.createdAt?.toDate()
         };
       }
 
       // Add new company
-      console.log(`Adding new company "${trimmedName}"`);
+      console.log(`Adding new company "${trimmedName}" to Firestore`);
+      const now = new Date();
       const docRef = await addDoc(companiesCollection, {
         name: trimmedName,
-        nameLower: lowerCaseName, // Store lowercase for efficient querying
-        createdAt: Timestamp.now(),
+        nameLower: lowerCaseName,
+        createdAt: Timestamp.fromDate(now),
       });
       console.log(`Successfully added company "${trimmedName}" with ID: ${docRef.id}`);
-      // Return the newly created company data
-      return {
+
+      const newCompany = {
           id: docRef.id,
           name: trimmedName,
           nameLower: lowerCaseName,
-          createdAt: new Date() // Use current date as createdAt
+          createdAt: now
       };
+
+      // Optimistically update the local cache
+      queryClient.setQueryData<Company[]>([COMPANIES_QUERY_KEY], (oldData = []) =>
+            [...oldData, newCompany].sort((a, b) => a.nameLower?.localeCompare(b.nameLower ?? '') ?? 0)
+      );
+
+      return newCompany;
     },
     onSuccess: (data, variables) => {
       if (data) {
          console.log(`Company add/check successful for: ${variables}. Result ID: ${data.id}`);
-         // Optionally invalidate if other parts of the app *do* display the company list
+         // Invalidate only if not using real-time listener, to ensure fresh data eventually
          // queryClient.invalidateQueries({ queryKey: [COMPANIES_QUERY_KEY] });
       } else {
-         console.log(`Company add/check skipped or failed for: ${variables}`);
+         console.log(`Company add/check skipped or no action needed for: ${variables}`);
       }
     },
     onError: (error, variables) => {
@@ -96,8 +158,10 @@ export function useCompanies() {
   });
 
   return {
-    // Removed companies list, isLoading, error from return
-    addCompany: addCompanyMutation.mutateAsync, // Expose mutateAsync for potential chaining/awaiting
-    isAddingCompany: addCompanyMutation.isPending, // Expose pending state if needed
+    companies, // Provide the fetched list
+    isLoading, // Loading state for the company list query
+    error,     // Error state for the company list query
+    addCompany: addCompanyMutation.mutateAsync,
+    isAddingCompany: addCompanyMutation.isPending,
   };
 }

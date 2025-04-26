@@ -69,7 +69,10 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
-  const { companies = [], addCompany, isAddingCompany, isLoading: isLoadingCompanies } = useCompanies(); // Destructure companies list and addCompany mutation
+  // isLoading now reflects the query loading state for companies
+  const { companies = [], addCompany, isAddingCompany, isLoading: isLoadingCompanies } = useCompanies();
+  const [currentCompanySearch, setCurrentCompanySearch] = useState(""); // Local state for search input
+
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -102,30 +105,41 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const onSubmit = async (data: ProductFormData) => {
     console.log("Form submitted with data:", data);
 
-    let finalCompanyName = data.company?.trim();
+    let finalCompanyName = data.company?.trim(); // Use the company from the form state
 
-     // If a company name was typed but doesn't exactly match an existing one, add it.
-     // This check prevents adding duplicates if the user selects from the list vs typing an existing name.
-     if (finalCompanyName && !companies.some(c => c.name === finalCompanyName)) {
+     // If a company name was selected or typed, ensure it exists in the backend
+     if (finalCompanyName) {
        try {
-         console.log(`Company "${finalCompanyName}" not in list, attempting to add...`);
-         await addCompany(finalCompanyName); // Await the addition
-         console.log(`Company "${finalCompanyName}" added successfully.`);
+         console.log(`Ensuring company "${finalCompanyName}" exists before adding product...`);
+         const companyResult = await addCompany(finalCompanyName); // Await the addition/check
+         if (companyResult) {
+            finalCompanyName = companyResult.name; // Use the potentially case-corrected name
+            form.setValue("company", finalCompanyName); // Update form state if corrected
+            console.log(`Company "${finalCompanyName}" confirmed/added.`);
+         } else {
+             // This might happen if addCompany filters out empty strings after trimming
+             finalCompanyName = undefined;
+         }
        } catch (error) {
-         console.error(`Failed to add company "${finalCompanyName}"`, error);
-         // Decide if you want to proceed without the company or show an error
-         // For now, let's proceed but clear the company field
-         // finalCompanyName = undefined; // Clear company if add fails? Or keep typed value? Let's keep it for now.
+         console.error(`Failed to ensure company "${finalCompanyName}" exists:`, error);
+         // Optionally show an error or decide to proceed without the company
+         // For now, let's proceed with the typed value, but log the error
+         // finalCompanyName = undefined; // Or clear it if preferred
+         toast({
+            title: "Company Error",
+            description: `Could not verify/add company "${finalCompanyName}". Product will be added with the typed name.`,
+            variant: "destructive",
+          });
        }
      }
 
 
-    const processedData = {
+    const processedData: ProductFormData = {
         ...data,
+        company: finalCompanyName || undefined, // Ensure it's string or undefined
         maxDiscount: data.maxDiscount ?? 0,
-        company: finalCompanyName || undefined, // Use the potentially added/verified name
     };
-    onAddProduct(processedData);
+    onAddProduct(processedData); // Pass the fully processed data
   };
 
    // Close dialog and reset form state
@@ -136,6 +150,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
        if(fileInputRef.current) {
           fileInputRef.current.value = '';
         }
+      setCurrentCompanySearch(""); // Reset local search state too
     };
 
     // Reset form and close dialog after successful add
@@ -186,7 +201,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 size="sm"
                 className="max-w-[150px]"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isAdding || isAddingCompany}
+                disabled={isAdding || isAddingCompany || isLoadingCompanies}
               >
                 Upload Image
               </Button>
@@ -251,10 +266,8 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                             )}
                             disabled={isLoadingCompanies || isAdding || isAddingCompany}
                           >
-                            {field.value
-                              ? companies.find(
-                                  (company) => company.name === field.value
-                                )?.name ?? `Add "${field.value}"...` // Show typed value or 'Add...' prompt
+                             {field.value
+                              ? field.value // Display the selected/typed value directly
                               : "Select or type company..."}
                              {isLoadingCompanies ? (
                                 <Loader2 className="ml-2 h-4 w-4 shrink-0 animate-spin opacity-50" />
@@ -265,27 +278,29 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                         </FormControl>
                       </PopoverTrigger>
                       <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
-                        <Command shouldFilter={false} > {/* Disable default filtering, we handle it */}
+                        <Command shouldFilter={false} > {/* Disable default filtering */}
                           <CommandInput
                             placeholder="Search or add company..."
-                            value={field.value || ''} // Use field.value for input display
-                            onValueChange={(search) => field.onChange(search)} // Update form state on type
+                            value={currentCompanySearch} // Control input with local state
+                            onValueChange={setCurrentCompanySearch} // Update local search state
                             className="text-base h-11"
                             disabled={isLoadingCompanies || isAdding || isAddingCompany}
                           />
                           <CommandList>
                             <CommandEmpty>
-                               {field.value?.trim() ? (
+                               {currentCompanySearch.trim() && !companies.some(c => c.name.toLowerCase() === currentCompanySearch.trim().toLowerCase()) ? (
                                     <CommandItem
                                         onSelect={() => {
-                                            // No need to call addCompany here, onSubmit handles it
-                                            form.setValue("company", field.value?.trim()); // Confirm trimmed value
+                                            const newCompanyName = currentCompanySearch.trim();
+                                            form.setValue("company", newCompanyName); // Set form value
+                                            setCurrentCompanySearch(newCompanyName); // Update local state to reflect selection
                                             setCompanyPopoverOpen(false);
+                                            // Company will be added/verified during onSubmit
                                         }}
                                         className="text-sm cursor-pointer"
                                     >
                                         <PlusCircle className="mr-2 h-4 w-4" />
-                                        Add "{field.value.trim()}"
+                                        Add "{currentCompanySearch.trim()}"
                                     </CommandItem>
                                 ) : (
                                     <span className="py-6 text-center text-sm">No company found. Type to add.</span>
@@ -293,13 +308,14 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                             </CommandEmpty>
                             <CommandGroup heading="Suggestions">
                               {companies
-                                .filter(company => company.name.toLowerCase().includes((field.value || '').toLowerCase()))
+                                .filter(company => company.name.toLowerCase().includes(currentCompanySearch.toLowerCase()))
                                 .map((company) => (
                                 <CommandItem
-                                  value={company.name} // Use name for value
+                                  value={company.name} // Use name for value and filtering
                                   key={company.id}
-                                  onSelect={(currentValue) => {
-                                    form.setValue("company", currentValue === field.value ? "" : currentValue); // Set selected value
+                                  onSelect={() => {
+                                    form.setValue("company", company.name); // Set selected value in the form
+                                    setCurrentCompanySearch(company.name); // Also update local search state
                                     setCompanyPopoverOpen(false);
                                   }}
                                   className="text-sm"
@@ -307,6 +323,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                                   <Check
                                     className={cn(
                                       "mr-2 h-4 w-4",
+                                      // Check against form's value for the checkmark
                                       company.name === field.value ? "opacity-100" : "opacity-0"
                                     )}
                                   />

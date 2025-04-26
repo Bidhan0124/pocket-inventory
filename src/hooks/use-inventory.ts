@@ -61,7 +61,9 @@ export function useInventory() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [offlineQueue, setOfflineQueue] = useState<OfflineProduct[]>([]);
-  const { addCompany, isAddingCompany, companies, isLoading: isLoadingCompanies } = useCompanies(); // Get addCompany, state, and companies list
+  // Only get what's needed: addCompany mutation and its pending state.
+  // Company list and loading state are handled in AddProductForm via useCompanies.
+  const { addCompany, isAddingCompany } = useCompanies();
   const isSyncing = useRef(false); // Ref to prevent concurrent syncs
 
   // Load offline queue from local storage on mount
@@ -128,15 +130,12 @@ export function useInventory() {
             isOffline: false // Mark as online when received from snapshot
           };
 
-          if (change.type === "added") {
-            console.log("Adding/Updating product from snapshot:", change.doc.id);
+          if (change.type === "added" || change.type === "modified") { // Combine add/modify logic for simplicity
+            console.log(`${change.type === "added" ? 'Adding' : 'Modifying'} product from snapshot:`, change.doc.id);
             updatedProductsMap.set(changeData.id, changeData);
-             // Remove corresponding offline item if it exists
+             // Remove corresponding offline item if it exists when added/modified from Firestore
             setOfflineQueue(prev => prev.filter(op => op.tempId !== changeData.id));
 
-          } else if (change.type === "modified") {
-            console.log("Modifying product from snapshot:", change.doc.id);
-            updatedProductsMap.set(changeData.id, changeData);
           } else if (change.type === "removed") {
             console.log("Removing product from snapshot:", change.doc.id);
             updatedProductsMap.delete(change.doc.id);
@@ -150,7 +149,6 @@ export function useInventory() {
                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       });
 
-       // *** REMOVED syncOfflineQueue() CALL FROM HERE TO PREVENT LOOPS ***
        // Syncing is handled by network status changes and mount effect
 
     }, (err) => {
@@ -192,19 +190,27 @@ export function useInventory() {
 
      for (const offlineProduct of queueToSync) {
        try {
-          // 1. Ensure Company Exists (Await the async mutation)
-          if (offlineProduct.company) {
-            console.log(`Ensuring company '${offlineProduct.company}' exists for temp ID ${offlineProduct.tempId}...`);
-            // No need to call addCompany here if it was already checked/added during initial product add
-             // We assume the company check/add happened in addProductMutation
-             // If addCompany failed then, the product wouldn't have a company field set
-             // If it was successful, the company exists.
-            // const companyResult = await addCompany(offlineProduct.company);
-            // if (companyResult) {
-            //     console.log(`Company '${offlineProduct.company}' ensured/found (ID: ${companyResult.id}).`);
-            // } else {
-            //      console.warn(`Company check for '${offlineProduct.company}' returned null during sync.`);
-            // }
+          // 1. Ensure Company Exists (Await the async mutation - important for sync integrity)
+          let verifiedCompanyName = offlineProduct.company;
+          if (verifiedCompanyName) {
+            console.log(`Ensuring company '${verifiedCompanyName}' exists during sync for temp ID ${offlineProduct.tempId}...`);
+             try {
+                const companyResult = await addCompany(verifiedCompanyName);
+                 if (companyResult) {
+                    verifiedCompanyName = companyResult.name; // Use corrected name
+                    console.log(`Company '${verifiedCompanyName}' ensured/found (ID: ${companyResult.id}) during sync.`);
+                 } else {
+                    verifiedCompanyName = undefined; // Clear if addCompany returns null
+                 }
+             } catch (companySyncError) {
+                 console.error(`Error ensuring company '${verifiedCompanyName}' during sync:`, companySyncError);
+                 toast({
+                     title: "Company Sync Error",
+                     description: `Could not verify/add company '${verifiedCompanyName}' during sync. Product synced without company.`,
+                     variant: "destructive",
+                 });
+                 verifiedCompanyName = undefined; // Clear on error
+             }
           }
 
          // 2. Handle Image Upload (if applicable)
@@ -238,7 +244,7 @@ export function useInventory() {
 
 
          // 3. Prepare Product Data for Firestore
-         const { imageFilePath, imageFileName, tempId, ...productData } = offlineProduct;
+         const { imageFilePath, imageFileName, tempId, company, ...productData } = offlineProduct;
 
 
           // 4. Add to Batch
@@ -246,7 +252,7 @@ export function useInventory() {
           batch.set(docRef, {
             ...productData,
              maxDiscount: productData.maxDiscount ?? 0,
-             company: productData.company || null,
+             company: verifiedCompanyName || null, // Use the verified name
              imageUrl,
              createdAt: Timestamp.fromDate(productData.createdAt),
           });
@@ -300,7 +306,7 @@ export function useInventory() {
       } else if (syncErrors > 0) {
          console.log("Sync attempted, but only errors occurred. Failed items requeued.");
       } else {
-          console.log("Sync queue processed, nothing to commit."); // This case might not happen due to optimistic clearing
+          console.log("Sync queue processed, nothing to commit."); // This case might happen due to optimistic clearing
       }
        isSyncing.current = false; // Release lock
    };
@@ -335,7 +341,7 @@ export function useInventory() {
        window.removeEventListener('offline', handleOffline);
      };
    // eslint-disable-next-line react-hooks/exhaustive-deps
-   }, []); // Only run on mount
+   }, [addCompany]); // Add addCompany as dependency for syncOfflineQueue
 
 
   // Add product mutation
@@ -344,39 +350,16 @@ export function useInventory() {
        const { imageFile, ...productData } = {
            ...formData,
            maxDiscount: formData.maxDiscount ?? 0,
-           company: formData.company?.trim() || undefined,
+           // Company name is already processed and confirmed in the form's onSubmit
+           company: formData.company || undefined,
        };
        const tempId = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
        const createdAt = new Date();
        let localImageUrl: string | undefined = undefined;
        let localImageFilePath: string | undefined = undefined;
 
-       // --- Ensure Company Exists (Crucial before adding product data) ---
-       let finalCompanyName = productData.company;
-       if (finalCompanyName) {
-            try {
-                console.log(`Ensuring company '${finalCompanyName}' exists before adding product...`);
-                const companyResult = await addCompany(finalCompanyName);
-                 if (companyResult) {
-                    console.log(`Company '${finalCompanyName}' ensured/found (ID: ${companyResult.id}).`);
-                    finalCompanyName = companyResult.name; // Use the potentially case-corrected name
-                 } else {
-                     // This case should ideally not happen if addCompany handles empty strings,
-                     // but as a fallback, clear the company name.
-                     console.warn(`Company check for '${finalCompanyName}' returned null. Proceeding without company.`);
-                     finalCompanyName = undefined;
-                 }
-            } catch (companyError) {
-                console.error(`Failed to ensure company '${finalCompanyName}':`, companyError);
-                toast({
-                     title: "Company Error",
-                     description: `Could not verify/add company '${finalCompanyName}'. Product will be added without it.`,
-                     variant: "destructive",
-                 });
-                finalCompanyName = undefined; // Clear company on error
-            }
-        }
-       // --- End Company Handling ---
+       // Company check/add is now handled *before* this mutation is called (in AddProductForm onSubmit)
+       const finalCompanyName = productData.company; // Use the name passed from the form
 
 
        // --- Image Handling ---
@@ -388,7 +371,7 @@ export function useInventory() {
 
        const offlineProduct: OfflineProduct = {
          ...productData,
-         company: finalCompanyName, // Use the potentially updated company name
+         company: finalCompanyName, // Use the confirmed company name
          tempId,
          imageFilePath: localImageFilePath,
          imageFileName: imageFile?.name,
@@ -508,7 +491,7 @@ export function useInventory() {
      },
   });
 
-   // Filter products based on search term (No offline queue merging needed here as snapshot handles updates)
+   // Filter products based on search term
     const filteredProducts = products.filter(product =>
         (product.name?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
         (product.company?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
@@ -517,15 +500,13 @@ export function useInventory() {
 
   return {
      products: filteredProducts, // Display products directly from the query cache
-     isLoading: isLoadingProducts || isLoadingCompanies, // Combined loading state
+     isLoading: isLoadingProducts, // Use only product loading state here
     error,
     searchTerm,
     setSearchTerm,
     addProduct: addProductMutation.mutate,
-    isAddingProduct: addProductMutation.isPending || isAddingCompany, // Reflect company check in adding state
+    isAddingProduct: addProductMutation.isPending || isAddingCompany, // Reflect product adding OR company check/add pending state
     syncOfflineQueue,
     offlineQueueCount: offlineQueue.length, // Keep track of pending offline items count
   };
 }
-
-    

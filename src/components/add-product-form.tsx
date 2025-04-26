@@ -54,7 +54,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast(); // Get toast function
-  const { companies, isLoading: isLoadingCompanies } = useCompanies(); // Get companies
+  const { companies } = useCompanies(); // Get companies, removed isLoadingCompanies
 
 
   const form = useForm<ProductFormData>({
@@ -113,17 +113,6 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
           fileInputRef.current.value = '';
         }
     };
-
-    // No longer need useEffect to close based on isAdding state
-    // useEffect(() => {
-    //     if (form.formState.isSubmitted && !isAdding) {
-    //          const timer = setTimeout(() => {
-    //             handleClose();
-    //          }, 500);
-    //          return () => clearTimeout(timer);
-    //     }
-    // }, [isAdding, form.formState.isSubmitted, handleClose, form.reset, form.formState]);
-
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => {
@@ -233,16 +222,16 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                               {...field}
                               list="company-suggestions"
                               className="text-base"
-                              disabled={isLoadingCompanies} // Disable while loading companies
+                              // Removed disabled prop
                           />
                           <datalist id="company-suggestions">
-                              {!isLoadingCompanies && companies.map((company) => (
+                              {companies.map((company) => ( // Removed !isLoadingCompanies check
                                   <option key={company.id} value={company.name} />
                               ))}
                           </datalist>
                         </div>
                     </FormControl>
-                     {isLoadingCompanies && <p className="text-xs text-muted-foreground">Loading companies...</p>}
+                     {/* Removed loading indicator paragraph */}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -334,4 +323,3 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     </Dialog>
   );
 }
-

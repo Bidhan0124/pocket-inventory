@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react'; // Import useRef
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   collection,
@@ -15,6 +15,7 @@ import {
   writeBatch,
   doc,
   getDoc,
+  limit, // Keep limit for company check
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
@@ -60,7 +61,8 @@ export function useInventory() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [offlineQueue, setOfflineQueue] = useState<OfflineProduct[]>([]);
-  const { addCompany, isAddingCompany } = useCompanies(); // Get addCompany and its pending state
+  const { addCompany, isAddingCompany, companies, isLoading: isLoadingCompanies } = useCompanies(); // Get addCompany, state, and companies list
+  const isSyncing = useRef(false); // Ref to prevent concurrent syncs
 
   // Load offline queue from local storage on mount
   useEffect(() => {
@@ -88,7 +90,7 @@ export function useInventory() {
 
 
   // Fetch products from Firestore using React Query and subscribe to real-time updates
-  const { data: products = [], isLoading, error } = useQuery<Product[]>({
+   const { data: products = [], isLoading: isLoadingProducts, error } = useQuery<Product[]>({
     queryKey: [INVENTORY_QUERY_KEY],
     queryFn: async () => {
       console.log('Fetching products from Firestore...');
@@ -103,7 +105,7 @@ export function useInventory() {
       console.log('Fetched products:', fetchedProducts.length);
       return fetchedProducts;
     },
-    staleTime: Infinity, // Keep data fresh indefinitely, rely on real-time updates
+    staleTime: 1000 * 60 * 5, // Stale after 5 mins, but rely on snapshot for updates
     refetchOnMount: true, // Refetch when component mounts
     refetchOnReconnect: true, // Refetch on reconnect
   });
@@ -115,101 +117,94 @@ export function useInventory() {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       console.log("Product snapshot received:", snapshot.docChanges().length, "changes");
-       queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) => {
-          let updatedProducts = [...oldData];
-          snapshot.docChanges().forEach((change) => {
-              const changeData = {
-                  id: change.doc.id,
-                  ...(change.doc.data() as Omit<Product, 'id' | 'createdAt'>),
-                   createdAt: (change.doc.data().createdAt as Timestamp).toDate(),
-              };
+      queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) => {
+        let updatedProductsMap = new Map(oldData.map(p => [p.id, p]));
 
-              if (change.type === "added") {
-                  // Check if it exists (from optimistic update) before adding
-                   const exists = updatedProducts.some(p => p.id === change.doc.id);
-                   if (!exists) {
-                     console.log("Adding new product from snapshot:", change.doc.id);
-                     // Ensure it's not a temp ID still present in offline queue
-                     if (!offlineQueue.some(op => op.tempId === change.doc.id)) {
-                        updatedProducts.push(changeData);
-                     } else {
-                         // If it's in the offline queue, it means the sync just happened.
-                         // We should replace the optimistic version.
-                         console.log("Replacing optimistic product with synced snapshot:", change.doc.id);
-                         updatedProducts = updatedProducts.map(p => p.id === change.doc.id ? changeData : p);
-                     }
-                   } else {
-                        // It exists, likely replacing an optimistic update
-                        console.log("Replacing existing/optimistic product with snapshot:", change.doc.id);
-                        updatedProducts = updatedProducts.map(p => p.id === change.doc.id ? changeData : p);
-                   }
-               }
-               if (change.type === "modified") {
-                  console.log("Modifying product from snapshot:", change.doc.id);
-                  updatedProducts = updatedProducts.map(p => p.id === change.doc.id ? changeData : p);
-              }
-              if (change.type === "removed") {
-                  console.log("Removing product from snapshot:", change.doc.id);
-                  updatedProducts = updatedProducts.filter(p => p.id !== change.doc.id);
-              }
-          });
-          // Remove any remaining temp IDs from offline queue that are now represented by a real ID
-          const syncedRealIds = snapshot.docChanges()
-              .filter(change => change.type === 'added')
-              .map(change => change.doc.id);
-          updatedProducts = updatedProducts.filter(p => !(p.isOffline && syncedRealIds.includes(p.id)));
+        snapshot.docChanges().forEach((change) => {
+          const changeData = {
+            id: change.doc.id,
+            ...(change.doc.data() as Omit<Product, 'id' | 'createdAt'>),
+            createdAt: (change.doc.data().createdAt as Timestamp).toDate(),
+            isOffline: false // Mark as online when received from snapshot
+          };
 
-          // Sort again after updates
-           return updatedProducts.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+          if (change.type === "added") {
+            console.log("Adding/Updating product from snapshot:", change.doc.id);
+            updatedProductsMap.set(changeData.id, changeData);
+             // Remove corresponding offline item if it exists
+            setOfflineQueue(prev => prev.filter(op => op.tempId !== changeData.id));
+
+          } else if (change.type === "modified") {
+            console.log("Modifying product from snapshot:", change.doc.id);
+            updatedProductsMap.set(changeData.id, changeData);
+          } else if (change.type === "removed") {
+            console.log("Removing product from snapshot:", change.doc.id);
+            updatedProductsMap.delete(change.doc.id);
+             // Also remove from offline queue if it happens to be there (edge case)
+            setOfflineQueue(prev => prev.filter(op => op.tempId !== change.doc.id));
+          }
+        });
+
+        // Convert map back to array and sort
+        return Array.from(updatedProductsMap.values())
+               .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       });
 
-       // Also attempt to sync offline queue after receiving updates
-       syncOfflineQueue();
+       // *** REMOVED syncOfflineQueue() CALL FROM HERE TO PREVENT LOOPS ***
+       // Syncing is handled by network status changes and mount effect
 
     }, (err) => {
       console.error("Error fetching real-time product updates:", err);
        toast({
           title: "Sync Error",
-          description: "Could not get real-time product updates. Please check your connection.",
+          description: "Could not get real-time product updates. Check connection.",
           variant: "destructive",
         });
     });
 
-    // Initial attempt to sync offline queue
-    syncOfflineQueue();
-
     // Cleanup listener on unmount
     return () => unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient]); // Removed offlineQueue from dependency array
+  }, [queryClient]); // Dependencies: queryClient and toast
 
 
   // Function to sync offline queue
   const syncOfflineQueue = async () => {
+     // Prevent concurrent sync runs
+     if (isSyncing.current) {
+        console.log("Sync skipped: Already in progress.");
+        return;
+     }
      if (isAddingCompany || offlineQueue.length === 0 || !navigator.onLine) {
        console.log(`Sync skipped: ${isAddingCompany ? 'Company operation pending, ' : ''}${offlineQueue.length === 0 ? 'Queue empty, ' : ''}${!navigator.onLine ? 'Offline.' : ''}`);
        return;
      }
 
+     isSyncing.current = true; // Set flag
      console.log(`Attempting to sync ${offlineQueue.length} offline products...`);
      const batch = writeBatch(db);
      const successfullySyncedTempIds = new Set<string>();
      let syncErrors = 0;
 
-     for (const offlineProduct of offlineQueue) {
+     // Use a copy of the queue to avoid issues if state changes during async ops
+     const queueToSync = [...offlineQueue];
+     setOfflineQueue([]); // Optimistically clear the queue in UI
+
+     for (const offlineProduct of queueToSync) {
        try {
           // 1. Ensure Company Exists (Await the async mutation)
           if (offlineProduct.company) {
             console.log(`Ensuring company '${offlineProduct.company}' exists for temp ID ${offlineProduct.tempId}...`);
-            const companyResult = await addCompany(offlineProduct.company); // Ensure company exists before adding product
-            if (companyResult) {
-                console.log(`Company '${offlineProduct.company}' ensured/found (ID: ${companyResult.id}).`);
-            } else {
-                 // Handle case where addCompany returns null (e.g., empty string), though validation should prevent this
-                 console.warn(`Company check for '${offlineProduct.company}' returned null. Proceeding without company association.`);
-                 // Optionally clear the company field for this product before syncing
-                 // offlineProduct.company = undefined;
-            }
+            // No need to call addCompany here if it was already checked/added during initial product add
+             // We assume the company check/add happened in addProductMutation
+             // If addCompany failed then, the product wouldn't have a company field set
+             // If it was successful, the company exists.
+            // const companyResult = await addCompany(offlineProduct.company);
+            // if (companyResult) {
+            //     console.log(`Company '${offlineProduct.company}' ensured/found (ID: ${companyResult.id}).`);
+            // } else {
+            //      console.warn(`Company check for '${offlineProduct.company}' returned null during sync.`);
+            // }
           }
 
          // 2. Handle Image Upload (if applicable)
@@ -217,7 +212,6 @@ export function useInventory() {
          let imageFile: File | null = null;
 
          if (offlineProduct.imageFilePath && offlineProduct.imageFileName) {
-            // Attempt to get the File object (placeholder)
             imageFile = await readFileFromPath(offlineProduct.imageFilePath);
 
             if (imageFile) {
@@ -226,18 +220,14 @@ export function useInventory() {
                      const uploadResult = await uploadBytes(storageRef, imageFile);
                      imageUrl = await getDownloadURL(uploadResult.ref);
                      console.log(`Image uploaded for temp ID ${offlineProduct.tempId}: ${imageUrl}`);
-                     // Ideally, delete the local file copy after successful upload if using native storage
-                     // Clean up blob URL if it was used
                      if (offlineProduct.imageFilePath.startsWith('blob:')) {
                          URL.revokeObjectURL(offlineProduct.imageFilePath);
                      }
                  } catch (uploadError) {
                      console.error(`Error uploading image for temp ID ${offlineProduct.tempId}:`, uploadError);
-                     // Decide strategy: fail sync for this item, or sync without image?
-                     // Let's sync without image for now and log error
                      toast({
                          title: "Image Upload Failed",
-                         description: `Could not upload image for ${offlineProduct.name || 'product'}. Product synced without image.`,
+                         description: `Could not upload image for ${offlineProduct.name || 'product'}. Synced without image.`,
                          variant: "destructive",
                        });
                  }
@@ -248,40 +238,32 @@ export function useInventory() {
 
 
          // 3. Prepare Product Data for Firestore
-         const { imageFilePath, imageFileName, tempId, ...productData } = offlineProduct; // Exclude local-only fields
+         const { imageFilePath, imageFileName, tempId, ...productData } = offlineProduct;
 
 
           // 4. Add to Batch
-          const docRef = doc(collection(db, PRODUCTS_COLLECTION)); // Let Firestore generate ID
+          const docRef = doc(collection(db, PRODUCTS_COLLECTION));
           batch.set(docRef, {
             ...productData,
-             // Ensure maxDiscount is a number (should be 0 if undefined in OfflineProduct)
              maxDiscount: productData.maxDiscount ?? 0,
-             company: productData.company || null, // Store null if company is undefined/empty
-             imageUrl, // Will be undefined if upload failed or no image
-             createdAt: Timestamp.fromDate(productData.createdAt), // Convert Date back to Timestamp
+             company: productData.company || null,
+             imageUrl,
+             createdAt: Timestamp.fromDate(productData.createdAt),
           });
           console.log(`Adding product (Temp ID: ${tempId}, Name: ${productData.name || 'Unnamed'}) to batch.`);
-          successfullySyncedTempIds.add(tempId); // Mark for removal from queue
+          successfullySyncedTempIds.add(tempId);
 
 
-       } catch (error: any) { // Catch specific errors if possible
+       } catch (error: any) {
          syncErrors++;
          console.error(`Error preparing product (Temp ID: ${offlineProduct.tempId}) for batch sync:`, error);
-         // Check if it's a company add error to provide specific feedback
-         if (error.message?.includes("company")) { // Basic check, improve if needed
-            toast({
-                title: "Company Sync Error",
-                description: `Failed to process company for product: ${offlineProduct.name || 'Unnamed'}. It will be retried.`,
-                variant: "destructive",
-              });
-         } else {
-             toast({
-                 title: "Product Sync Error",
-                 description: `Failed to sync product: ${offlineProduct.name || 'Unnamed'}. It will be retried.`,
-                 variant: "destructive",
-               });
-         }
+          toast({
+              title: "Product Sync Error",
+              description: `Failed to sync product: ${offlineProduct.name || 'Unnamed'}. It will be retried later.`, // Adjusted message
+              variant: "destructive",
+            });
+           // Add the failed item back to the queue
+           setOfflineQueue(prev => [...prev, offlineProduct]);
        }
      }
 
@@ -292,10 +274,8 @@ export function useInventory() {
              await batch.commit();
              console.log(`Successfully committed sync for ${successfullySyncedTempIds.size} products.`);
 
-             // Remove successfully synced items from the offline queue
-             setOfflineQueue((prevQueue) =>
-               prevQueue.filter((item) => !successfullySyncedTempIds.has(item.tempId))
-             );
+             // Items were already optimistically removed, no state update needed here if commit succeeds
+             // If commit fails, items that failed individually were already added back
 
               toast({
                   title: "Sync Complete",
@@ -303,23 +283,26 @@ export function useInventory() {
                    variant: syncErrors > 0 ? "destructive" : "default",
                });
 
-              // No need to invalidate company list query here anymore
-
              // Real-time listener handles product list updates
 
          } catch (error) {
            console.error('Error committing batch sync:', error);
+           // Add back items that were supposed to be synced but failed at commit
+           const itemsToRequeue = queueToSync.filter(item => successfullySyncedTempIds.has(item.tempId));
+           setOfflineQueue(prev => [...prev, ...itemsToRequeue]);
+
            toast({
-             title: "Sync Failed",
+             title: "Sync Commit Failed",
              description: `Could not commit ${successfullySyncedTempIds.size} synced products. They remain queued for retry.`,
              variant: "destructive",
            });
          }
       } else if (syncErrors > 0) {
-         console.log("Sync attempted, but only errors occurred.");
+         console.log("Sync attempted, but only errors occurred. Failed items requeued.");
       } else {
-          console.log("Sync queue processed, nothing to commit.");
+          console.log("Sync queue processed, nothing to commit."); // This case might not happen due to optimistic clearing
       }
+       isSyncing.current = false; // Release lock
    };
 
    // Listen for online/offline events
@@ -332,7 +315,7 @@ export function useInventory() {
        console.log("Network status: Offline");
         toast({
           title: "Offline",
-          description: "You are currently offline. Changes will be synced when you reconnect.",
+          description: "Changes will be synced when you reconnect.",
           variant: "default"
         });
      };
@@ -340,7 +323,7 @@ export function useInventory() {
      window.addEventListener('online', handleOnline);
      window.addEventListener('offline', handleOffline);
 
-     // Initial check
+     // Initial check and sync attempt
      if(navigator.onLine) {
        handleOnline();
      } else {
@@ -358,103 +341,115 @@ export function useInventory() {
   // Add product mutation
   const addProductMutation = useMutation({
      mutationFn: async (formData: AddProductFormData) => {
-        // Ensure maxDiscount is set to 0 if it's undefined/null
        const { imageFile, ...productData } = {
            ...formData,
            maxDiscount: formData.maxDiscount ?? 0,
-           company: formData.company?.trim() || undefined, // Trim and ensure undefined if empty
+           company: formData.company?.trim() || undefined,
        };
        const tempId = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
        const createdAt = new Date();
        let localImageUrl: string | undefined = undefined;
        let localImageFilePath: string | undefined = undefined;
 
-       // --- Company Handling (check happens during sync/direct add now) ---
+       // --- Ensure Company Exists (Crucial before adding product data) ---
+       let finalCompanyName = productData.company;
+       if (finalCompanyName) {
+            try {
+                console.log(`Ensuring company '${finalCompanyName}' exists before adding product...`);
+                const companyResult = await addCompany(finalCompanyName);
+                 if (companyResult) {
+                    console.log(`Company '${finalCompanyName}' ensured/found (ID: ${companyResult.id}).`);
+                    finalCompanyName = companyResult.name; // Use the potentially case-corrected name
+                 } else {
+                     // This case should ideally not happen if addCompany handles empty strings,
+                     // but as a fallback, clear the company name.
+                     console.warn(`Company check for '${finalCompanyName}' returned null. Proceeding without company.`);
+                     finalCompanyName = undefined;
+                 }
+            } catch (companyError) {
+                console.error(`Failed to ensure company '${finalCompanyName}':`, companyError);
+                toast({
+                     title: "Company Error",
+                     description: `Could not verify/add company '${finalCompanyName}'. Product will be added without it.`,
+                     variant: "destructive",
+                 });
+                finalCompanyName = undefined; // Clear company on error
+            }
+        }
+       // --- End Company Handling ---
 
 
        // --- Image Handling ---
        if (imageFile) {
-          // For offline: Create a temporary local URL for display and store "path" info
           localImageUrl = URL.createObjectURL(imageFile);
-          // Store a placeholder path - replace with actual path if using native file system
-          localImageFilePath = localImageUrl; // Using blob URL as path placeholder
+          localImageFilePath = localImageUrl;
        }
        // --- End Image Handling ---
 
        const offlineProduct: OfflineProduct = {
          ...productData,
+         company: finalCompanyName, // Use the potentially updated company name
          tempId,
          imageFilePath: localImageFilePath,
          imageFileName: imageFile?.name,
          createdAt,
        };
 
-       // 1. Add to local state immediately for UI update (optimistic update)
-       setOfflineQueue((prevQueue) => [...prevQueue, offlineProduct]);
-       // Optimistically add to the main products list
-       queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) => [
-            // Ensure properties match the Product type for optimistic update
-           {
-                id: tempId,
-                name: productData.name, // Mandatory now
-                company: productData.company,
-                costPrice: productData.costPrice,
-                sellingPrice: productData.sellingPrice,
-                maxDiscount: productData.maxDiscount, // Optional, defaults to 0
-                imageUrl: localImageUrl,
-                createdAt,
-                isOffline: true
-            },
-           ...oldData,
-       ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())); // Keep sorted
+        // 1. Optimistic UI Update (Add to list immediately)
+        queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) => [
+            {
+                 id: tempId,
+                 name: productData.name,
+                 company: finalCompanyName,
+                 costPrice: productData.costPrice,
+                 sellingPrice: productData.sellingPrice,
+                 maxDiscount: productData.maxDiscount,
+                 imageUrl: localImageUrl,
+                 createdAt,
+                 isOffline: true // Mark as offline initially
+             },
+            ...oldData,
+        ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()));
 
 
        // 2. Attempt direct Firestore add if online
        if (navigator.onLine) {
          try {
-            // Ensure company exists *before* adding product directly
-            if (productData.company) {
-                console.log(`Ensuring company '${productData.company}' exists before direct add...`);
-                await addCompany(productData.company);
-                console.log(`Company '${productData.company}' ensured.`);
-            }
-
            let uploadedImageUrl: string | undefined = undefined;
            if (imageFile) {
              console.log("Uploading image for new product...");
-             // Use tempId in storage path for potential offline consistency
              const storageRef = ref(storage, `product_images/${tempId}_${imageFile.name}`);
              const uploadResult = await uploadBytes(storageRef, imageFile);
              uploadedImageUrl = await getDownloadURL(uploadResult.ref);
              console.log("Image uploaded:", uploadedImageUrl);
-             // Clean up blob URL after upload if necessary
              if (localImageUrl) URL.revokeObjectURL(localImageUrl);
            }
 
            const docRef = await addDoc(collection(db, PRODUCTS_COLLECTION), {
-             ...productData, // name, company, costPrice, sellingPrice, maxDiscount (will be 0 if omitted)
-             company: productData.company || null, // Store null if company is undefined/empty
+             ...productData,
+             company: finalCompanyName || null, // Use final name, store null if undefined
              imageUrl: uploadedImageUrl,
              createdAt: Timestamp.fromDate(createdAt),
            });
            console.log("Product added directly to Firestore with ID:", docRef.id);
 
-           // Remove from offline queue if direct add succeeds
-           setOfflineQueue((prevQueue) => prevQueue.filter(item => item.tempId !== tempId));
+           // No need to add to offline queue if direct add succeeds
 
-           // Update optimistic item with real ID (Snapshot listener should handle this)
-           // We might manually trigger a replace here for immediate feedback before snapshot arrives
+           // Update optimistic item with real ID and mark as online
            queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) =>
-               oldData.map(p => p.id === tempId ? { ...p, id: docRef.id, imageUrl: uploadedImageUrl, isOffline: false } : p)
+               oldData.map(p => p.id === tempId ? {
+                   ...p,
+                   id: docRef.id,
+                   imageUrl: uploadedImageUrl,
+                   isOffline: false // Mark as online
+                } : p)
                   .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
            );
 
-
-            // Return the synced product data matching the Product type
             return {
                 id: docRef.id,
                 name: productData.name,
-                company: productData.company,
+                company: finalCompanyName,
                 costPrice: productData.costPrice,
                 sellingPrice: productData.sellingPrice,
                 maxDiscount: productData.maxDiscount,
@@ -463,87 +458,74 @@ export function useInventory() {
             };
 
          } catch (error) {
-           console.error('Direct Firestore add failed, keeping in offline queue:', error);
+           console.error('Direct Firestore add failed, adding to offline queue:', error);
+           // Add to offline queue only if direct add fails
+           setOfflineQueue((prevQueue) => [...prevQueue, offlineProduct]);
            toast({
              title: "Save Error",
-             description: "Could not save directly to cloud. Saved locally and will sync later.",
+             description: "Saved locally. Will sync later.",
              variant: "destructive",
            });
-           // No need to do anything else, it's already in the offline queue and optimistically added
-           return undefined;
+           return undefined; // Indicate failure or offline save
          }
 
        } else {
          console.log("Offline: Product added to local queue.");
+         // Add to offline queue if offline
+         setOfflineQueue((prevQueue) => [...prevQueue, offlineProduct]);
          toast({
            title: "Saved Locally",
-           description: "You are offline. Product saved locally and will sync when online.",
+           description: "You are offline. Product saved locally.",
            variant: "default",
            style: { backgroundColor: 'var(--accent-success)', color: 'var(--accent-success-foreground)' }
          });
-         return undefined;
+         return undefined; // Indicate offline save
        }
      },
      onSuccess: (data, variables) => {
-       // Runs AFTER the mutationFn completes.
        if (data) { // Direct online add was successful
           toast({
              title: "Product Added",
-             description: `${variables.name || 'Product'} successfully added and synced.`,
+             description: `${variables.name || 'Product'} added and synced.`,
              variant: 'default',
              style: { backgroundColor: 'var(--accent-success)', color: 'var(--accent-success-foreground)' }
            });
-           // No need to invalidate company list query here
-           // Snapshot listener handles UI update for products
        }
-       // If offline (data is undefined), the "Saved Locally" toast was already shown.
+       // Offline/failed save messages are handled within mutationFn
      },
      onError: (error, variables) => {
        console.error('Error in addProductMutation:', error);
        toast({
          title: "Error Adding Product",
-         description: `Could not add ${variables.name || 'product'}. It remains saved locally if offline.`,
+         description: `Could not add ${variables.name || 'product'}. Please try again.`, // General error
          variant: "destructive",
        });
-       // If online add failed, it should still be in offline queue for retry.
-       // We might want to remove the optimistic UI update if the error is fatal?
-       // For now, leave the optimistic entry, syncOfflineQueue will handle retry.
+        // Remove the optimistic UI update if the mutation fails fundamentally
+        queryClient.setQueryData<Product[]>([INVENTORY_QUERY_KEY], (oldData = []) =>
+            oldData.filter(p => !(p.id.startsWith('local_') && p.name === variables.name && p.isOffline)) // Be specific removing
+                 .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        );
      },
   });
 
-  // Filter/Combine Products for Display
-  const combinedList = [
-    // Map offline items for display
-    ...offlineQueue.map(op => ({
-      id: op.tempId,
-      name: op.name, // Mandatory now
-      company: op.company,
-      costPrice: op.costPrice,
-      sellingPrice: op.sellingPrice,
-      maxDiscount: op.maxDiscount, // Optional, will be 0 if undefined
-      // Use stored blob URL if available, otherwise undefined
-      imageUrl: op.imageFilePath && op.imageFilePath.startsWith('blob:') ? op.imageFilePath : undefined,
-      createdAt: op.createdAt,
-      isOffline: true,
-    })),
-    // Add online products, filtering out any that have a corresponding offline item's temp ID
-    ...products.filter(p => !offlineQueue.some(op => op.tempId === p.id)),
-  ]
-  .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) // Sort combined list
-  .filter(product => // Apply search term
-    (product.name?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
-    (product.company?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
-  );
+   // Filter products based on search term (No offline queue merging needed here as snapshot handles updates)
+    const filteredProducts = products.filter(product =>
+        (product.name?.toLowerCase() ?? '').includes(searchTerm.toLowerCase()) ||
+        (product.company?.toLowerCase() ?? '').includes(searchTerm.toLowerCase())
+    );
+
 
   return {
-    products: combinedList,
-    isLoading: isLoading || isAddingCompany, // Consider company check as loading
+     products: filteredProducts, // Display products directly from the query cache
+     isLoading: isLoadingProducts || isLoadingCompanies, // Combined loading state
     error,
     searchTerm,
     setSearchTerm,
     addProduct: addProductMutation.mutate,
-    isAddingProduct: addProductMutation.isPending,
+    isAddingProduct: addProductMutation.isPending || isAddingCompany, // Reflect company check in adding state
     syncOfflineQueue,
-    offlineQueueCount: offlineQueue.length,
+    offlineQueueCount: offlineQueue.length, // Keep track of pending offline items count
   };
 }
+
+    

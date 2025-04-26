@@ -34,7 +34,9 @@ export default {
   			},
   			accent: {
   				DEFAULT: 'hsl(var(--accent))',
-  				foreground: 'hsl(var(--accent-foreground))'
+  				foreground: 'hsl(var(--accent-foreground))',
+                success: 'hsl(var(--accent-success))',
+                'success-foreground': 'hsl(var(--accent-success-foreground))',
   			},
   			destructive: {
   				DEFAULT: 'hsl(var(--destructive))',
@@ -92,3 +94,5 @@ export default {
   },
   plugins: [require("tailwindcss-animate")],
 } satisfies Config;
+
+    

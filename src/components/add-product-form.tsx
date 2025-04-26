@@ -226,7 +226,8 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                         Company Name (Optional)
                     </FormLabel>
                     <FormControl>
-                        <>
+                        {/* Wrap Input and datalist in a div to fix Fragment prop error */}
+                        <div>
                           <Input
                               placeholder="Type or select company..."
                               {...field}
@@ -239,7 +240,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                                   <option key={company.id} value={company.name} />
                               ))}
                           </datalist>
-                        </>
+                        </div>
                     </FormControl>
                      {isLoadingCompanies && <p className="text-xs text-muted-foreground">Loading companies...</p>}
                     <FormMessage />
@@ -333,3 +334,4 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
     </Dialog>
   );
 }
+

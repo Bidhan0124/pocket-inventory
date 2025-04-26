@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useToast } from "@/hooks/use-toast"
@@ -30,8 +31,8 @@ export function Toaster() {
           </Toast>
         )
       })}
-      {/* Viewport controls the positioning of the toasts group */}
-      <ToastViewport className="fixed bottom-0 left-0 right-0 p-4 flex flex-col-reverse gap-3 z-[100] sm:bottom-0 sm:right-0 sm:left-auto sm:top-auto sm:flex-col sm:max-w-[420px]" />
+      {/* Viewport controls the positioning of the toasts group. Added pb-24 to avoid FAB overlap on mobile */}
+      <ToastViewport className="fixed bottom-0 left-0 right-0 p-4 pb-28 flex flex-col-reverse gap-3 z-[100] sm:pb-4 sm:bottom-0 sm:right-0 sm:left-auto sm:top-auto sm:flex-col sm:max-w-[420px]" />
     </ToastProvider>
   )
 }

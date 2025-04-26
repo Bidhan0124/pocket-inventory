@@ -24,5 +24,6 @@ export interface Company {
 // Define the type based on the Zod schema in AddProductForm
 export type AddProductFormData = z.infer<typeof productSchema>;
 
+// Type for controlling the product list view
+export type ViewMode = 'grid' | 'list';
 
-    

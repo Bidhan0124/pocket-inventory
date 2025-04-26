@@ -9,8 +9,19 @@ import * as z from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-// Removed Command imports as they are no longer used for company
-// Removed Popover imports as they are no longer used for company
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Dialog,
   DialogContent,
@@ -29,26 +40,27 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-// Removed Check, ChevronsUpDown from lucide-react
-import { PlusCircle, Image as ImageIcon, Loader2, CheckCircle } from "lucide-react";
+import { Check, ChevronsUpDown, PlusCircle, Image as ImageIcon, Loader2, CheckCircle } from "lucide-react";
+// Keep Avatar imports only if used elsewhere, otherwise remove
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-// Removed useCompanies hook import as it's no longer directly used for the input
+import { useCompanies } from '@/hooks/use-companies'; // Import hook to fetch/add companies
 import type { AddProductFormData as ProductFormData } from '@/lib/types'; // Import the refined type
 import { cn } from '@/lib/utils';
+import Image from 'next/image'; // Use next/image for preview
 
-// Validation schema: Name is now required, Max Discount is optional
+// Validation schema: Name is required, Max Discount is optional
 export const productSchema = z.object({
-  name: z.string().min(1, "Product name is required"), // Name is now required
-  company: z.string().optional(), // Optional string input
+  name: z.string().min(1, "Product name is required"),
+  company: z.string().optional(), // Selected company name (string)
   costPrice: z.coerce.number().min(0, "Cost price must be non-negative"),
   sellingPrice: z.coerce.number().min(0, "Selling price must be non-negative"),
-  maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%").optional().default(0), // Optional with default
+  maxDiscount: z.coerce.number().min(0, "Discount must be non-negative").max(100, "Discount cannot exceed 100%").optional().default(0),
   imageFile: z.instanceof(File).optional(),
 });
 
 
 interface AddProductFormProps {
-  onAddProduct: (data: ProductFormData) => void; // Use the imported type
+  onAddProduct: (data: ProductFormData) => void;
   isAdding: boolean;
 }
 
@@ -56,17 +68,17 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   const [isOpen, setIsOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Removed companyPopoverOpen state
-  // Removed useCompanies hook usage here
+  const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
+  const { companies = [], addCompany, isAddingCompany, isLoading: isLoadingCompanies } = useCompanies(); // Destructure companies list and addCompany mutation
 
   const form = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
     defaultValues: {
       name: "",
-      company: "",
+      company: "", // Initialize as empty string
       costPrice: 0,
       sellingPrice: 0,
-      maxDiscount: 0, // Default to 0
+      maxDiscount: 0,
       imageFile: undefined,
     },
   });
@@ -87,29 +99,46 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
   };
 
 
-  const onSubmit = (data: ProductFormData) => {
+  const onSubmit = async (data: ProductFormData) => {
     console.log("Form submitted with data:", data);
-    // Ensure maxDiscount is a number if it was left empty (should be handled by default now)
+
+    let finalCompanyName = data.company?.trim();
+
+     // If a company name was typed but doesn't exactly match an existing one, add it.
+     // This check prevents adding duplicates if the user selects from the list vs typing an existing name.
+     if (finalCompanyName && !companies.some(c => c.name === finalCompanyName)) {
+       try {
+         console.log(`Company "${finalCompanyName}" not in list, attempting to add...`);
+         await addCompany(finalCompanyName); // Await the addition
+         console.log(`Company "${finalCompanyName}" added successfully.`);
+       } catch (error) {
+         console.error(`Failed to add company "${finalCompanyName}"`, error);
+         // Decide if you want to proceed without the company or show an error
+         // For now, let's proceed but clear the company field
+         // finalCompanyName = undefined; // Clear company if add fails? Or keep typed value? Let's keep it for now.
+       }
+     }
+
+
     const processedData = {
         ...data,
         maxDiscount: data.maxDiscount ?? 0,
-        // Trim company name before sending
-        company: data.company?.trim() || undefined,
+        company: finalCompanyName || undefined, // Use the potentially added/verified name
     };
-    onAddProduct(processedData); // Pass the processed data including the File object
+    onAddProduct(processedData);
   };
 
    // Close dialog and reset form state
    const handleClose = () => {
       setIsOpen(false);
-      form.reset(); // Resets to defaultValues including maxDiscount: 0
+      form.reset();
       setImagePreview(null);
        if(fileInputRef.current) {
           fileInputRef.current.value = '';
         }
     };
 
-    // Reset form and close dialog after successful add (when isAdding becomes false)
+    // Reset form and close dialog after successful add
     useEffect(() => {
         if (!isAdding && form.formState.isSubmitSuccessful) {
             handleClose();
@@ -119,7 +148,7 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
 
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !isAdding && setIsOpen(open)}>
+    <Dialog open={isOpen} onOpenChange={(open) => !isAdding && !isAddingCompany && setIsOpen(open)}>
       <DialogTrigger asChild>
         <Button className="fixed bottom-6 right-6 rounded-full h-14 w-14 p-0 shadow-lg z-20 bg-gradient-to-br from-primary to-blue-600 hover:from-primary/90 hover:to-blue-600/90 transition-all duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
           <PlusCircle className="h-7 w-7 text-primary-foreground" />
@@ -135,21 +164,29 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            {/* Image Upload Section - More centered and prominent */}
+            {/* Image Upload Section - Rectangular Preview */}
             <div className="flex flex-col items-center gap-4">
-              <Avatar className="h-24 w-24 border-2 border-border shadow-md">
-                <AvatarImage src={imagePreview ?? undefined} alt="Product Preview" className="object-cover"/>
-                <AvatarFallback className="bg-muted">
-                  <ImageIcon className="h-10 w-10 text-muted-foreground" />
-                </AvatarFallback>
-              </Avatar>
+              {/* Rectangular Preview Area */}
+              <div className="w-full max-w-xs aspect-video border-2 border-border shadow-md rounded-md overflow-hidden bg-muted flex items-center justify-center">
+                  {imagePreview ? (
+                    <Image
+                      src={imagePreview}
+                      alt="Product Preview"
+                      width={320} // Example width, adjust as needed
+                      height={180} // Example height (16:9 aspect ratio)
+                      className="object-cover w-full h-full"
+                    />
+                  ) : (
+                    <ImageIcon className="h-10 w-10 text-muted-foreground" />
+                  )}
+              </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="max-w-[150px]"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isAdding}
+                disabled={isAdding || isAddingCompany}
               >
                 Upload Image
               </Button>
@@ -194,20 +231,98 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
                 )}
               />
 
-               {/* Company Input - Simplified */}
+              {/* Company Combobox */}
                <FormField
                 control={form.control}
                 name="company"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="flex flex-col">
                     <FormLabel>Company</FormLabel>
-                     <FormControl>
-                       <Input placeholder="e.g., Brand Name (Optional)" {...field} className="text-base"/>
-                     </FormControl>
+                    <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={companyPopoverOpen}
+                            className={cn(
+                              "w-full justify-between text-base",
+                              !field.value && "text-muted-foreground"
+                            )}
+                            disabled={isLoadingCompanies || isAdding || isAddingCompany}
+                          >
+                            {field.value
+                              ? companies.find(
+                                  (company) => company.name === field.value
+                                )?.name ?? `Add "${field.value}"...` // Show typed value or 'Add...' prompt
+                              : "Select or type company..."}
+                             {isLoadingCompanies ? (
+                                <Loader2 className="ml-2 h-4 w-4 shrink-0 animate-spin opacity-50" />
+                             ) : (
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                             )}
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] max-h-[--radix-popover-content-available-height] p-0">
+                        <Command shouldFilter={false} > {/* Disable default filtering, we handle it */}
+                          <CommandInput
+                            placeholder="Search or add company..."
+                            value={field.value || ''} // Use field.value for input display
+                            onValueChange={(search) => field.onChange(search)} // Update form state on type
+                            className="text-base h-11"
+                            disabled={isLoadingCompanies || isAdding || isAddingCompany}
+                          />
+                          <CommandList>
+                            <CommandEmpty>
+                               {field.value?.trim() ? (
+                                    <CommandItem
+                                        onSelect={() => {
+                                            // No need to call addCompany here, onSubmit handles it
+                                            form.setValue("company", field.value?.trim()); // Confirm trimmed value
+                                            setCompanyPopoverOpen(false);
+                                        }}
+                                        className="text-sm cursor-pointer"
+                                    >
+                                        <PlusCircle className="mr-2 h-4 w-4" />
+                                        Add "{field.value.trim()}"
+                                    </CommandItem>
+                                ) : (
+                                    <span className="py-6 text-center text-sm">No company found. Type to add.</span>
+                                )}
+                            </CommandEmpty>
+                            <CommandGroup heading="Suggestions">
+                              {companies
+                                .filter(company => company.name.toLowerCase().includes((field.value || '').toLowerCase()))
+                                .map((company) => (
+                                <CommandItem
+                                  value={company.name} // Use name for value
+                                  key={company.id}
+                                  onSelect={(currentValue) => {
+                                    form.setValue("company", currentValue === field.value ? "" : currentValue); // Set selected value
+                                    setCompanyPopoverOpen(false);
+                                  }}
+                                  className="text-sm"
+                                >
+                                  <Check
+                                    className={cn(
+                                      "mr-2 h-4 w-4",
+                                      company.name === field.value ? "opacity-100" : "opacity-0"
+                                    )}
+                                  />
+                                  {company.name}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
 
               {/* Price Fields in a Grid */}
               <div className="grid grid-cols-2 gap-4">
@@ -268,15 +383,14 @@ export function AddProductForm({ onAddProduct, isAdding }: AddProductFormProps) 
 
             <DialogFooter className="mt-8 gap-2 sm:gap-0">
               <DialogClose asChild>
-                  <Button type="button" variant="outline" onClick={handleClose} disabled={isAdding} className="w-full sm:w-auto">
+                  <Button type="button" variant="outline" onClick={handleClose} disabled={isAdding || isAddingCompany} className="w-full sm:w-auto">
                       Cancel
                   </Button>
                </DialogClose>
-              {/* Removed isLoadingCompanies from disabled condition */}
-              <Button type="submit" disabled={isAdding} className="w-full sm:w-auto bg-accent-success hover:bg-accent-success/90 text-accent-success-foreground">
-                {isAdding ? (
+              <Button type="submit" disabled={isAdding || isAddingCompany || isLoadingCompanies} className="w-full sm:w-auto bg-accent-success hover:bg-accent-success/90 text-accent-success-foreground">
+                {isAdding || isAddingCompany ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding...
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {isAddingCompany ? 'Checking Company...' : 'Adding...'}
                   </>
                 ) : (
                     <>

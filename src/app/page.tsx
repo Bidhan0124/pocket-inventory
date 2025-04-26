@@ -1,5 +1,8 @@
+
 "use client";
 
+import { useState } from 'react';
+import type { ViewMode } from '@/lib/types'; // Import the ViewMode type
 import { useInventory } from "@/hooks/use-inventory";
 import { AddProductForm } from "@/components/add-product-form";
 import { ProductList } from "@/components/product-list";
@@ -7,7 +10,9 @@ import { SearchBar } from "@/components/search-bar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from "lucide-react";
 
+
 export default function Home() {
+  const [viewMode, setViewMode] = useState<ViewMode>('grid'); // State for view mode
   const {
     products,
     isLoading,
@@ -41,12 +46,15 @@ export default function Home() {
           searchTerm={searchTerm}
           onSearchChange={setSearchTerm}
           offlineQueueCount={offlineQueueCount}
+          viewMode={viewMode} // Pass view mode
+          onViewChange={setViewMode} // Pass setter function
         />
       <main className="flex-1 pb-24"> {/* Add padding-bottom to avoid overlap with FAB */}
 
-        <ProductList products={products} isLoading={isLoading} />
+        <ProductList products={products} isLoading={isLoading} viewMode={viewMode} /> {/* Pass view mode */}
       </main>
       <AddProductForm onAddProduct={addProduct} isAdding={isAddingProduct} />
     </div>
   );
 }
+
